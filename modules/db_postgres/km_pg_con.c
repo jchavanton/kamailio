@@ -115,11 +115,6 @@ struct pg_con* db_postgres_new_connection(struct db_id* id)
 		PQfinish(ptr->con);
 		goto err;
 	}
-	LM_INFO("postgres: Connected. Protocol version=%d, Server version=%d\n",
-			PQprotocolVersion(ptr->con), PQserverVersion(ptr->con));
-	if (PQserverVersion(ptr->con) <  90500) {
-		LM_WARN("server version < 9.5 does not support insert update\n");
-	}
 
 	ptr->connected = 1;
 	ptr->timestamp = time(0);
