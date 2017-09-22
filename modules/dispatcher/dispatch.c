@@ -31,6 +31,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <math.h>
 
 #include "../../ut.h"
 #include "../../trim.h"
@@ -73,6 +74,8 @@ static ds_ht_t *_dsht_load = NULL;
 static int *_ds_ping_active = NULL;
 
 extern int ds_force_dst;
+extern int ds_ping_latency_stats;
+extern float ds_latency_estimator_alpha;
 
 static db_func_t ds_dbf;
 static db1_con_t* ds_db_handle=NULL;
@@ -2276,6 +2279,86 @@ int ds_next_dst(struct sip_msg *msg, int mode)
 	return 1;
 }
 
+static inline void latency_stats_update(ds_latency_stats_t *latency_stats, int latency) {
+	/* after 2^21 smaples, ~24 days at 1s interval, the average becomes weighted moving average */
+	if (latency_stats->count < 2097152) {
+		latency_stats->count++;
+	} else { /* We adjust the sum of squares used by the oneline algorithm proportionally */
+		latency_stats->m2 -= latency_stats->m2/latency_stats->count;
+	}
+	if (latency_stats->count == 1) {
+		latency_stats->stdev = 0.0f;
+		latency_stats->m2 = 0.0f;
+		latency_stats->max = latency;
+		latency_stats->min = latency;
+		latency_stats->average = latency;
+		latency_stats->estimate = latency;
+	}
+	if (latency_stats->min > latency)
+		latency_stats->min = latency;
+	if (latency_stats->max < latency)
+		latency_stats->max = latency;
+
+	/* standard deviation using oneline algorithm */
+	/* https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Online_algorithm */
+	if (latency_stats->count > 1) {
+		float delta = latency - latency_stats->average;
+		latency_stats->average += delta/latency_stats->count;
+		float delta2 = latency - latency_stats->average;
+		latency_stats->m2 += delta*delta2;
+		latency_stats->stdev = sqrt(latency_stats->m2 / (latency_stats->count-1));
+	}
+	/* exponentialy weighted moving average */
+	if (latency_stats->count < 10) {
+		latency_stats->estimate = latency_stats->average;
+	} else {
+		latency_stats->estimate = latency_stats->estimate*ds_latency_estimator_alpha
+		                          + latency*(1-ds_latency_estimator_alpha);
+	}
+}
+
+int ds_update_latency(int group, str *address, int code)
+{
+	int i = 0;
+	int state = 0;
+	ds_set_t *idx = NULL;
+
+	if(_ds_list == NULL || _ds_list_nr <= 0) {
+		LM_ERR("the list is null\n");
+		return -1;
+	}
+
+	/* get the index of the set */
+	if(ds_get_index(group, &idx) != 0) {
+		LM_ERR("destination set [%d] not found\n", group);
+		return -1;
+	}
+
+	while(i < idx->nr) {
+		if(idx->dlist[i].uri.len == address->len
+				&& strncasecmp(idx->dlist[i].uri.s, address->s, address->len)
+						   == 0) {
+
+			/* destination address found */
+			state = idx->dlist[i].flags;
+			ds_latency_stats_t *latency_stats = &idx->dlist[i].latency_stats;
+			if (code == 408 && latency_stats->timeout < UINT32_MAX) {
+				latency_stats->timeout++;
+			} else {
+				struct timeval now;
+				gettimeofday(&now, NULL);
+				int latency_ms = (now.tv_sec - latency_stats->start.tv_sec)*1000
+			            + (now.tv_usec - latency_stats->start.tv_usec)/1000;
+				latency_stats_update(latency_stats, latency_ms);
+				LM_DBG("[%d]latency[%d]avg[%.2f][%.*s]code[%d]\n", latency_stats->count, latency_ms,
+					 latency_stats->average, address->len, address->s, code);
+			}
+		}
+		i++;
+	}
+	return state;
+}
+
 int ds_mark_dst(struct sip_msg *msg, int state)
 {
 	int group, ret;
@@ -2798,6 +2881,8 @@ static void ds_options_callback( struct cell *t, int type,
 	uri.len = t->to.len - 8;
 	LM_DBG("OPTIONS-Request was finished with code %d (to %.*s, group %d)\n",
 			ps->code, uri.len, uri.s, group);
+	if (ds_ping_latency_stats)
+		ds_update_latency(group, &uri, ps->code);
 	/* ps->code contains the result-code of the request.
 	 *
 	 * We accept both a "200 OK" or the configured reply as a valid response */
@@ -2883,6 +2968,8 @@ void ds_check_timer(unsigned int ticks, void* param)
 				} else if (ds_default_socket.s != NULL && ds_default_socket.len > 0) {
 					uac_r.ssock = &ds_default_socket;
 				}
+
+				gettimeofday(&list->dlist[j].latency_stats.start, NULL);
 				if (tmb.t_request(&uac_r,
 							&list->dlist[j].uri,
 							&list->dlist[j].uri,

@@ -47,6 +47,11 @@
                 <email>alezzandro@gmail.com</email>
                 </address>
             </editor>
+            <editor>
+                <firstname>Julien</firstname>
+                <surname>Chavanton</surname>
+                <email>jchavanton@gmail.com</email>
+            </editor>
 	</authorgroup>
 	<copyright>
 	    <year>2004</year>
@@ -67,6 +72,10 @@
 	<copyright>
             <year>2015</year>
             <holder>Alessandro Arrichiello, Hewlett Packard</holder>
+        </copyright>
+	<copyright>
+            <year>2017</year>
+            <holder>Julien chavanton, Flowroute</holder>
         </copyright>
    </bookinfo>
     <toc></toc>
