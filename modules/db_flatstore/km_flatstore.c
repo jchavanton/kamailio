@@ -184,11 +184,27 @@ int flat_db_insert(const db1_con_t* h, const db_key_t* k, const db_val_t* v,
 			break;
 
 		case DB1_STRING:
+			LM_ERR("DB1_STRING[%s]\n", VAL_STRING(v + i));
 			fprintf(f, "%s", VAL_STRING(v + i));
 			break;
 
 		case DB1_STR:
-			fprintf(f, "%.*s", VAL_STR(v + i).len, VAL_STR(v + i).s);
+			LM_ERR("DB1_STRING[%s]\n", VAL_STR(v + i).s);
+			char delimiter = '|';
+			// char escape = '\\';
+			int offset = 0;
+			s = VAL_STR(v+i).s;
+			l = VAL_STR(v+i).len;
+			LM_ERR("DB1_STR[%.*s]\n", l, s);
+			for (offset = 0; offset < l; offset++) {
+				if (s[offset] == delimiter) {
+					// fprintf(f, "%c%c", escape, s[offset]);
+					fprintf(f, "%%%02X", (s[offset] & 0xff) );
+				} else {
+					fprintf(f, "%c", s[offset]);
+				}
+			}
+			// fprintf(f, "%.*s", VAL_STR(v + i).len, VAL_STR(v + i).s);
 			break;
 
 		case DB1_DATETIME:
