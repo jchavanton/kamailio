@@ -35,6 +35,8 @@
 #include "../../lib/srdb1/db_key.h"
 #include "../../lib/srdb1/db_con.h"
 
+extern str flat_delimiter;
+extern int encode_delimiter;
 
 /*
  * Initialize database module
