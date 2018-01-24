@@ -66,6 +66,7 @@
 #include "../../dprint.h"
 #include "../../mem/mem.h"
 #include "../../modules/tm/tm_load.h"
+#include "../../modules/mqueue/api.h"
 #include "../../str.h"
 #include "../rr/api.h"
 #include "acc.h"
@@ -88,6 +89,7 @@ MODULE_VERSION
 
 struct tm_binds tmb;
 struct rr_binds rrb;
+mq_api_t mq_api;
 
 static int mod_init(void);
 static void destroy(void);
@@ -145,6 +147,7 @@ struct acc_extra *log_extra = 0; /*!< Log extra attributes */
 
 int cdr_enable  = 0;
 int cdr_log_enable  = 1;
+int cdr_queue_enable  = 1;
 int cdr_start_on_confirmed = 0;
 int cdr_expired_dlg_enable = 0;
 static char* cdr_facility_str = 0;
@@ -274,6 +277,7 @@ static param_export_t params[] = {
 	/* cdr specific */
 	{"cdr_enable",           INT_PARAM, &cdr_enable                 },
 	{"cdr_log_enable",         INT_PARAM, &cdr_log_enable           },
+	{"cdr_queue_enable",         INT_PARAM, &cdr_queue_enable           },
 	{"cdr_start_on_confirmed", INT_PARAM, &cdr_start_on_confirmed   },
 	{"cdr_facility",         PARAM_STRING, &cdr_facility_str           },
 	{"cdr_extra",            PARAM_STRING, &cdr_log_extra_str          },
@@ -511,6 +515,12 @@ static int mod_init( void )
 	/* load the TM API */
 	if (load_tm_api(&tmb)!=0) {
 		LM_ERR("can't load TM API\n");
+		return -1;
+	}
+
+	/* load the MQUEUE API */
+	if (load_mq_api(&mq_api) !=0) {
+		LM_ERR("can't load MQUEUE API\n");
 		return -1;
 	}
 

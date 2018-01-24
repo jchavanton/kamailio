@@ -46,6 +46,8 @@
 #include <stdio.h>
 #include <time.h>
 
+
+
 #include "../../dprint.h"
 #include "../../error.h"
 #include "../../mem/mem.h"
@@ -61,6 +63,8 @@
 #include "acc_extra.h"
 #include "acc_logic.h"
 #include "acc_api.h"
+#include "../../str.h"
+#include "../../modules/mqueue/api.h"
 
 #ifdef RAD_ACC
 #include "../../lib/kcore/radius.h"
@@ -76,6 +80,8 @@ extern struct acc_extra *log_extra;
 extern struct acc_extra *leg_info;
 extern struct acc_enviroment acc_env;
 extern char *acc_time_format;
+extern int cdr_queue_enable;
+extern mq_api_t mq_api;
 
 #ifdef RAD_ACC
 extern struct acc_extra *rad_extra;
@@ -221,6 +227,16 @@ void acc_log_init(void)
 		log_attrs[n++] = extra->name;
 }
 
+void acc_queue_request(char *msg) {
+	if (cdr_queue_enable) {
+		// mq_item_add(&q, &qkey, &qval)
+		str s1 = str_init("cdr");
+		str s2 = str_init("cdr_key"); // uniquenes key ?
+		str s3 = {msg, strlen(msg)};
+		LM_ERR("CDR queued: [%d][%s]\n", s3.len, s3.s);
+		mq_api.add(&s1, &s2, &s3);
+	}
+}
 
 int acc_log_request( struct sip_msg *rq)
 {
@@ -316,6 +332,7 @@ int acc_log_request( struct sip_msg *rq)
 			acc_env.text.len, acc_env.text.s,(unsigned long)acc_env.ts,
 			log_msg);
 	}
+	acc_queue_request(log_msg);
 	/* free memory allocated by extra2strar */
 	free_strar_mem( &(type_arr[m-o]), &(val_arr[m-o]), o, m);
 
