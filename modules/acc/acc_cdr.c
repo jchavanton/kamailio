@@ -38,6 +38,7 @@
 #include "../../modules/tm/tm_load.h"
 #include "../../str.h"
 #include "../dialog/dlg_load.h"
+// #include "../../modules/mqueue/api.h"
 
 #include "acc_api.h"
 #include "acc_cdr.h"
@@ -88,6 +89,8 @@ extern str cdr_end_str;
 extern str cdr_duration_str;
 extern str acc_cdrs_table;
 extern int cdr_log_enable;
+//extern int cdr_queue_enable;
+//extern mq_api_t mq_api;
 extern int _acc_cdr_on_failed;
 
 static int string2time( str* time_str, struct timeval* time_value);
@@ -373,6 +376,15 @@ static int write_cdr( struct dlg_cell* dialog,
 		LM_ERR( "message is empty!");
 		return -1;
 	}
+
+//	if (cdr_queue_enable) {
+//		LM_ERR("queuing CDR\n");
+//		// mq_item_add(&q, &qkey, &qval)
+//		str s1 = str_init("cdr");
+//		str s2 = str_init("cdr_key");
+//		str s3 = str_init("cdr_val");
+//		mq_api.add(&s1, &s2, &s3);
+//	}
 
 	ret = log_write_cdr(dialog, message);
 #ifdef SQL_ACC
