@@ -32,3 +32,9 @@ SERLIBPATH=../../lib
 SER_LIBS+=$(SERLIBPATH)/srdb1/srdb1 $(SERLIBPATH)/kcore/kcore
 
 include ../../Makefile.modules
+
+
+LIBS+=-L$(LOCALBASE)/lib -ljansson
+DEFS+= $(shell pkg-config --cflags jansson)
+LIBS+= $(shell pkg-config --libs jansson)
+

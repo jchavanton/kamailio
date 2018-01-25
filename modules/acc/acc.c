@@ -64,7 +64,7 @@
 #include "acc_logic.h"
 #include "acc_api.h"
 #include "../../str.h"
-#include "../../modules/mqueue/api.h"
+
 
 #ifdef RAD_ACC
 #include "../../lib/kcore/radius.h"
@@ -74,6 +74,12 @@
 #include "diam_dict.h"
 #include "diam_message.h"
 #include "diam_tcp.h"
+#endif
+
+#define MQUEUE_JSON_ACC 1
+#ifdef MQUEUE_JSON_ACC
+#include <jansson.h>
+#include "../../modules/mqueue/api.h"
 #endif
 
 extern struct acc_extra *log_extra;
@@ -227,16 +233,58 @@ void acc_log_init(void)
 		log_attrs[n++] = extra->name;
 }
 
-void acc_queue_request(char *msg) {
-	if (cdr_queue_enable) {
-		// mq_item_add(&q, &qkey, &qval)
+#ifdef MQUEUE_JSON_ACC
+void acc_queue_request(struct sip_msg *rq) {
+	LM_ERR(" do\n");
+	int i;
+	int m;
+	m = core2strar( rq, val_arr, int_arr, type_arr );
+
+	if (!cdr_queue_enable) return;
+
+	json_t *object = json_object();
+
+	for (i=0; i<m; i++) {
+		// LM_ERR("[%d][%.*s][%i][%i]\n", i, val_arr[i].len, val_arr[i].s, int_arr[i], type_arr[i]);
+		char *tmp = strndup(val_arr[i].s, val_arr[i].len);
+		if (i == 0) {
+			json_object_set(object, "method", json_string(tmp));
+		} else if (i == 1) {
+			json_object_set(object, "from_tag", json_string(tmp));
+		} else if (i == 2) {
+			json_object_set(object, "to_tag", json_string(tmp));
+		} else if (i == 3) {
+			json_object_set(object, "call-id", json_string(tmp));
+		} else if (i == 4) {
+			json_object_set(object, "status_code", json_string(tmp));
+		} else if (i == 5) {
+			json_object_set(object, "reason_phrase", json_string(tmp));
+		} else if (i == 6) {
+			json_object_set(object, "timestamp", json_string(tmp));
+		}
+		free(tmp);
+	}
+	if (object) {
+		if (json_object_size(object) == 0) {
+			LM_ERR("json object empty\n");
+			json_decref(object);
+			return;
+		}
+		char *json_string = json_dumps(object, JSON_ENSURE_ASCII);
+		str acc_str = {json_string, strlen(json_string)};
 		str s1 = str_init("cdr");
 		str s2 = str_init("cdr_key"); // uniquenes key ?
-		str s3 = {msg, strlen(msg)};
-		LM_ERR("CDR queued: [%d][%s]\n", s3.len, s3.s);
-		mq_api.add(&s1, &s2, &s3);
+		if (mq_api.add(&s1, &s2, &acc_str)) {
+			LM_ERR("CDR queued[1]: [%d][%s]\n", acc_str.len, acc_str.s);
+		} else {
+			LM_ERR("CDR queued[0]: [%d][%s]\n", acc_str.len, acc_str.s);
+		}
+		free(json_string);
+		json_object_clear(object);
+		json_decref(object);
 	}
 }
+#endif
 
 int acc_log_request( struct sip_msg *rq)
 {
@@ -250,6 +298,7 @@ int acc_log_request( struct sip_msg *rq)
 	struct tm *t;
 	double dtime;
 
+	acc_queue_request(rq);
 	/* get default values */
 	m = core2strar( rq, val_arr, int_arr, type_arr);
 
@@ -332,7 +381,7 @@ int acc_log_request( struct sip_msg *rq)
 			acc_env.text.len, acc_env.text.s,(unsigned long)acc_env.ts,
 			log_msg);
 	}
-	acc_queue_request(log_msg);
+
 	/* free memory allocated by extra2strar */
 	free_strar_mem( &(type_arr[m-o]), &(val_arr[m-o]), o, m);
 
