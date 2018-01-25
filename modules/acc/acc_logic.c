@@ -221,6 +221,7 @@ int acc_get_param_value(struct sip_msg *rq, struct acc_param *param)
 
 int w_acc_log_request(struct sip_msg *rq, char *comment, char *foo)
 {
+	LM_ERR("%s\n", __FUNCTION__);
 	struct acc_param *param = (struct acc_param*)comment;
 	if (acc_preparse_req(rq)<0)
 		return -1;
