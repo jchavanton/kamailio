@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <time.h>
 
+#include "../../core/str.h"
 #include "../../core/dprint.h"
 #include "../../core/error.h"
 #include "../../core/mem/mem.h"
@@ -47,6 +48,14 @@
 #include "acc_extra.h"
 #include "acc_logic.h"
 #include "acc_api.h"
+
+#define MQUEUE_JSON_ACC 1
+#ifdef MQUEUE_JSON_ACC
+#include <jansson.h>
+#include "../../modules/mqueue/api.h"
+extern int cdr_queue_enable;
+extern mq_api_t mq_api;
+#endif
 
 extern struct acc_extra *log_extra;
 extern struct acc_extra *leg_info;
@@ -185,6 +194,76 @@ void acc_log_init(void)
 		log_attrs[n++] = extra->name;
 }
 
+#ifdef MQUEUE_JSON_ACC
+void acc_queue_request(struct sip_msg *rq) {
+	LM_ERR(" do\n");
+	int i;
+	int m, o;
+
+        /* get default values */
+	m = core2strar( rq, val_arr, int_arr, type_arr);
+	/* get extra values */
+	o = extra2strar( log_extra, rq, val_arr+m, int_arr+m, type_arr+m);
+
+	if (!cdr_queue_enable) return;
+
+	json_t *object = json_object();
+
+	for (i=0; i<m; i++) {
+		LM_ERR("[%d][%.*s]\n", i, val_arr[i].len, val_arr[i].s);
+		char *tmp = strndup(val_arr[i].s, val_arr[i].len);
+		if (i == 0) {
+			json_object_set(object, acc_method_col.s, json_string(tmp));
+		} else if (i == 1) {
+			json_object_set(object, acc_fromtag_col.s, json_string(tmp));
+		} else if (i == 2) {
+			json_object_set(object, acc_totag_col.s, json_string(tmp));
+		} else if (i == 3) {
+			json_object_set(object, acc_callid_col.s, json_string(tmp));
+		} else if (i == 4) {
+			json_object_set(object, acc_sipcode_col.s, json_string(tmp));
+		} else if (i == 5) {
+			json_object_set(object, acc_sipreason_col.s, json_string(tmp));
+		} else if (i == 6) {
+			json_object_set(object, acc_time_col.s, json_string(tmp));
+		}
+		free(tmp);
+	}
+
+	/* extra columns */
+        struct acc_extra *extra = log_extra;
+	m += o;
+	for (; i<m; i++) {
+		LM_ERR("[%d][%s][%.*s]\n", i, extra->name.s, val_arr[i].len, val_arr[i].s);
+		char *tmp = strndup(val_arr[i].s, val_arr[i].len);
+		json_object_set(object, extra->name.s, json_string(tmp));
+		free(tmp);
+		extra = extra->next;
+	}
+
+	if (object) {
+		if (json_object_size(object) == 0) {
+			LM_ERR("json object empty\n");
+			json_decref(object);
+			return;
+		}
+		char *json_string = json_dumps(object, JSON_ENSURE_ASCII);
+		str acc_str = {json_string, strlen(json_string)};
+		str s1 = str_init("cdr");
+		str s2 = str_init("cdr_key"); // uniquenes key ?
+		if (mq_api.add(&s1, &s2, &acc_str)) {
+			LM_ERR("ACC queued[1]: [%d][%s]\n", acc_str.len, acc_str.s);
+		} else {
+			LM_ERR("ACC queued[0]: [%d][%s]\n", acc_str.len, acc_str.s);
+		}
+		free(json_string);
+		json_object_clear(object);
+		json_decref(object);
+	}
+	/* free memory allocated by extra2strar */
+	free_strar_mem( &(type_arr[m-o]), &(val_arr[m-o]), o, m);
+}
+#endif
 
 int acc_log_request( struct sip_msg *rq)
 {
@@ -197,6 +276,8 @@ int acc_log_request( struct sip_msg *rq)
 	int i;
 	struct tm *t;
 	double dtime;
+
+	acc_queue_request(rq);
 
 	/* get default values */
 	m = core2strar( rq, val_arr, int_arr, type_arr);
