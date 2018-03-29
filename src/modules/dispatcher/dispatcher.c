@@ -105,6 +105,7 @@ str ds_ping_from   = str_init("sip:dispatcher@localhost");
 static int ds_ping_interval = 0;
 int ds_ping_latency_stats = 0;
 int ds_latency_estimator_alpha_i = 900;
+int ds_latency_cc = 0; // congestion control
 float ds_latency_estimator_alpha = 0.9f;
 int ds_probing_mode  = DS_PROBE_NONE;
 
@@ -249,6 +250,7 @@ static param_export_t params[]={
 	{"ds_ping_interval",   INT_PARAM, &ds_ping_interval},
 	{"ds_ping_latency_stats", INT_PARAM, &ds_ping_latency_stats},
 	{"ds_latency_estimator_alpha", INT_PARAM, &ds_latency_estimator_alpha_i},
+	{"ds_latency_cc", INT_PARAM, &ds_latency_cc},
 	{"ds_ping_reply_codes", PARAM_STR, &ds_ping_reply_codes_str},
 	{"ds_probing_mode",    INT_PARAM, &ds_probing_mode},
 	{"ds_hash_size",       INT_PARAM, &ds_hash_size},

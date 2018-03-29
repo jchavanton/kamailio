@@ -88,6 +88,7 @@ static int *_ds_ping_active = NULL;
 extern int ds_force_dst;
 extern str ds_event_callback;
 extern int ds_ping_latency_stats;
+extern int ds_latency_cc;
 extern float ds_latency_estimator_alpha;
 
 static db_func_t ds_dbf;
@@ -520,6 +521,7 @@ int dp_init_relative_weights(ds_set_t *dset)
 	if(dset == NULL || dset->dlist == NULL)
 		return -1;
 
+	lock_get(&dset->lock);
 	int rw_sum = 0;
 	/* find the sum of relative weights*/
 	for(j = 0; j < dset->nr; j++) {
@@ -529,8 +531,10 @@ int dp_init_relative_weights(ds_set_t *dset)
 	}
 
 	if(rw_sum == 0) {
+		lock_release(&dset->lock);
 		return 0;
 	}
+
 
 	/* fill the array based on the relative weight of each destination */
 	t = 0;
@@ -540,11 +544,13 @@ int dp_init_relative_weights(ds_set_t *dset)
 
 		int current_slice =
 				dset->dlist[j].attrs.rweight * 100 / rw_sum; //truncate here;
+		LM_ERR("rw_sum[%d][%d][%d]\n",j, rw_sum, current_slice);
 		for(k = 0; k < current_slice; k++) {
 			dset->rwlist[t] = (unsigned int)j;
 			t++;
 		}
 	}
+
 	/* if the array was not completely filled (i.e., the sum of rweights is
 	 * less than 100 due to truncated), then use last address to fill the rest */
 	unsigned int last_insert =
@@ -557,7 +563,7 @@ int dp_init_relative_weights(ds_set_t *dset)
 	 * sending first 20 calls to it, but ensure that within a 100 calls,
 	 * 20 go to first address */
 	shuffle_uint100array(dset->rwlist);
-
+	lock_release(&dset->lock);
 	return 0;
 }
 
@@ -592,6 +598,7 @@ int dp_init_weights(ds_set_t *dset)
 			if(t >= 100)
 				goto randomize;
 			dset->wlist[t] = (unsigned int)j;
+			LM_INFO("dset->wlist[%d]: %d\n", t, j);
 			t++;
 		}
 	}
@@ -2288,8 +2295,10 @@ static inline void latency_stats_update(ds_latency_stats_t *latency_stats, int l
 		latency_stats->max = latency;
 		latency_stats->min = latency;
 		latency_stats->average = latency;
+
 		latency_stats->estimate = latency;
 	}
+	if (latency_stats->count == 5) latency_stats->count = 900000;
 	if (latency_stats->min > latency)
 		latency_stats->min = latency;
 	if (latency_stats->max < latency)
@@ -2329,7 +2338,8 @@ int ds_update_latency(int group, str *address, int code)
 		LM_ERR("destination set [%d] not found\n", group);
 		return -1;
 	}
-
+	int apply_rweights = 0;
+	lock_get(&idx->lock);
 	while(i < idx->nr) {
 		if(idx->dlist[i].uri.len == address->len
 				&& strncasecmp(idx->dlist[i].uri.s, address->s, address->len)
@@ -2346,12 +2356,31 @@ int ds_update_latency(int group, str *address, int code)
 				int latency_ms = (now.tv_sec - latency_stats->start.tv_sec)*1000
 			            + (now.tv_usec - latency_stats->start.tv_usec)/1000;
 				latency_stats_update(latency_stats, latency_ms);
-				LM_DBG("[%d]latency[%d]avg[%.2f][%.*s]code[%d]\n", latency_stats->count, latency_ms,
-					 latency_stats->average, address->len, address->s, code);
+
+				// congestion detection based on latency estimator
+			  if (ds_latency_cc) {
+				int congestion_ms = latency_stats->estimate - latency_stats->average;
+				if (congestion_ms < 0) congestion_ms = 0;
+				int active_weight = idx->dlist[i].attrs.weight - congestion_ms;
+				if (active_weight <= 0) {
+					if (idx->dlist[i].attrs.rweight != 1)
+						apply_rweights = 1;
+					idx->dlist[i].attrs.rweight = 1;
+				} else {
+					if (idx->dlist[i].attrs.rweight != active_weight)
+						apply_rweights = 1;
+       					idx->dlist[i].attrs.rweight = active_weight; 
+				}
+				LM_ERR("[%d]latency[%d]avg[%.2f][%.*s]code[%d]rweight[%d]cms[%d]\n", latency_stats->count, latency_ms,
+					 latency_stats->average, address->len, address->s, code, idx->dlist[i].attrs.rweight, congestion_ms);
+			  }
 			}
 		}
 		i++;
 	}
+	lock_release(&idx->lock);
+	if (ds_latency_cc && apply_rweights) dp_init_relative_weights(idx);
+
 	return state;
 }
 
@@ -3099,7 +3128,7 @@ ds_set_t *ds_avl_insert(ds_set_t **root, int id, int *setn)
 		node->id = id;
 		node->longer = AVL_NEITHER;
 		*root = node;
-
+		lock_init(&node->lock);
 		avl_rebalance(rotation_top, id);
 
 		(*setn)++;
