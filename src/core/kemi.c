@@ -33,6 +33,7 @@
 #include "strutils.h"
 #include "mem/shm.h"
 #include "parser/parse_uri.h"
+#include "parser/parse_from.h"
 #include "parser/parse_hname2.h"
 #include "parser/parse_methods.h"
 
@@ -155,6 +156,78 @@ static int sr_kemi_core_is_myself(sip_msg_t *msg, str *uri)
 		return SR_KEMI_TRUE;
 	}
 	return SR_KEMI_FALSE;
+}
+
+/**
+ *
+ */
+static int sr_kemi_core_is_myself_ruri(sip_msg_t *msg)
+{
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(msg->first_line.type == SIP_REPLY)	/* REPLY doesn't have a ruri */
+		return SR_KEMI_FALSE;
+
+	if (msg->new_uri.s!=NULL)
+		return sr_kemi_core_is_myself(msg, &msg->new_uri);
+	return sr_kemi_core_is_myself(msg, &msg->first_line.u.request.uri);
+}
+
+/**
+ *
+ */
+static int sr_kemi_core_is_myself_furi(sip_msg_t *msg)
+{
+	to_body_t *xfrom;
+
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(parse_from_header(msg)<0) {
+		LM_ERR("cannot parse From header\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(msg->from==NULL || get_from(msg)==NULL) {
+		LM_DBG("no From header\n");
+		return SR_KEMI_FALSE;
+	}
+
+	xfrom = get_from(msg);
+
+	return sr_kemi_core_is_myself(msg, &xfrom->uri);
+}
+
+/**
+ *
+ */
+static int sr_kemi_core_is_myself_turi(sip_msg_t *msg)
+{
+	to_body_t *xto;
+
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(parse_to_header(msg)<0) {
+		LM_ERR("cannot parse To header\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(msg->to==NULL || get_to(msg)==NULL) {
+		LM_DBG("no To header\n");
+		return SR_KEMI_FALSE;
+	}
+
+	xto = get_to(msg);
+
+	return sr_kemi_core_is_myself(msg, &xto->uri);
 }
 
 /**
@@ -501,6 +574,20 @@ static int sr_kemi_core_force_rport(sip_msg_t *msg)
 /**
  *
  */
+static int sr_kemi_core_add_local_rport(sip_msg_t *msg)
+{
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	msg->msg_flags|=FL_ADD_LOCAL_RPORT;
+	return SR_KEMI_TRUE;
+}
+
+/**
+ *
+ */
 static int sr_kemi_core_match_method_id(str *rmethod, str *vmethod, int mid)
 {
 	char mbuf[SR_KEMI_HNAME_SIZE];
@@ -586,6 +673,94 @@ static int sr_kemi_core_is_method(sip_msg_t *msg, str *vmethod)
 	}
 	return sr_kemi_core_match_method_id(&get_cseq(msg)->method, vmethod,
 			get_cseq(msg)->method_id);
+}
+
+/**
+ *
+ */
+static int sr_kemi_core_is_method_in(sip_msg_t *msg, str *vmethod)
+{
+	int imethod;
+	int i;
+
+	if(msg==NULL || vmethod==NULL || vmethod->s==NULL || vmethod->len<=0) {
+		LM_WARN("invalid parameters\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(msg->first_line.type==SIP_REQUEST) {
+		imethod = msg->first_line.u.request.method_value;
+	} else {
+		if(parse_headers(msg, HDR_CSEQ_F, 0)!=0 || msg->cseq==NULL) {
+			LM_ERR("cannot parse cseq header\n");
+			return SR_KEMI_FALSE;
+		}
+		imethod = get_cseq(msg)->method_id;
+	}
+
+	if(imethod==METHOD_OTHER) {
+		return SR_KEMI_FALSE;
+	}
+
+	for(i=0; i<vmethod->len; i++) {
+		switch(vmethod->s[i]) {
+			case 'I':
+			case 'i':
+				if(imethod==METHOD_INVITE) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'A':
+			case 'a':
+				if(imethod==METHOD_ACK) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'B':
+			case 'b':
+				if(imethod==METHOD_BYE) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'C':
+			case 'c':
+				if(imethod==METHOD_CANCEL) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'R':
+			case 'r':
+				if(imethod==METHOD_REGISTER) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'P':
+			case 'p':
+				if(imethod==METHOD_PUBLISH) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'S':
+			case 's':
+				if(imethod==METHOD_SUBSCRIBE) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'N':
+			case 'n':
+				if(imethod==METHOD_NOTIFY) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+			case 'O':
+			case 'o':
+				if(imethod==METHOD_OPTIONS) {
+					return SR_KEMI_TRUE;
+				}
+			break;
+		}
+	}
+	return SR_KEMI_FALSE;
 }
 
 /**
@@ -699,6 +874,122 @@ static int sr_kemi_core_set_reply_no_connect(sip_msg_t *msg)
 /**
  *
  */
+static int sr_kemi_core_set_advertised_address(sip_msg_t *msg, str *addr)
+{
+#define SR_ADV_ADDR_SIZE 128
+	static char _sr_adv_addr_buf[SR_ADV_ADDR_SIZE];
+
+	if(addr==NULL || addr->s==NULL) {
+		LM_ERR("invalid addr parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(addr->len>=SR_ADV_ADDR_SIZE) {
+		LM_ERR("addr parameter is too large\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	memcpy(_sr_adv_addr_buf, addr->s, addr->len);
+	_sr_adv_addr_buf[addr->len] = '\0';
+	msg->set_global_address.s = _sr_adv_addr_buf;
+	msg->set_global_address.len = addr->len;
+
+	return SR_KEMI_TRUE;
+}
+
+/**
+ *
+ */
+static int sr_kemi_core_set_advertised_port(sip_msg_t *msg, str *port)
+{
+#define SR_ADV_PORT_SIZE 8
+	static char _sr_adv_port_buf[SR_ADV_PORT_SIZE];
+
+	if(port==NULL || port->s==NULL) {
+		LM_ERR("invalid port parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(port->len>=SR_ADV_PORT_SIZE) {
+		LM_ERR("port parameter is too large\n");
+		return SR_KEMI_FALSE;
+	}
+
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+	memcpy(_sr_adv_port_buf, port->s, port->len);
+	_sr_adv_port_buf[port->len] = '\0';
+	msg->set_global_port.s = _sr_adv_port_buf;
+	msg->set_global_port.len = port->len;
+
+	return SR_KEMI_TRUE;
+}
+
+/**
+ *
+ */
+static int sr_kemi_core_add_tcp_alias(sip_msg_t *msg, int port)
+{
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+#ifdef USE_TCP
+	if ( msg->rcv.proto==PROTO_TCP
+#ifdef USE_TLS
+				|| msg->rcv.proto==PROTO_TLS
+#endif
+			) {
+		if (tcpconn_add_alias(msg->rcv.proto_reserved1, port,
+							msg->rcv.proto)!=0){
+			LM_ERR("adding tcp alias failed\n");
+			return SR_KEMI_FALSE;
+		}
+	}
+#endif
+
+	return SR_KEMI_TRUE;
+}
+
+/**
+ *
+ */
+static int sr_kemi_core_add_tcp_alias_via(sip_msg_t *msg)
+{
+	if(msg==NULL) {
+		LM_WARN("invalid msg parameter\n");
+		return SR_KEMI_FALSE;
+	}
+
+#ifdef USE_TCP
+	if ( msg->rcv.proto==PROTO_TCP
+#ifdef USE_TLS
+				|| msg->rcv.proto==PROTO_TLS
+#endif
+			) {
+		if (tcpconn_add_alias(msg->rcv.proto_reserved1, msg->via1->port,
+							msg->rcv.proto)!=0){
+			LM_ERR("adding tcp alias failed\n");
+			return SR_KEMI_FALSE;
+		}
+	}
+#endif
+	return SR_KEMI_TRUE;
+}
+
+
+/**
+ *
+ */
 static sr_kemi_t _sr_kemi_core[] = {
 	{ str_init(""), str_init("dbg"),
 		SR_KEMIP_NONE, sr_kemi_core_dbg,
@@ -728,6 +1019,21 @@ static sr_kemi_t _sr_kemi_core[] = {
 	{ str_init(""), str_init("is_myself"),
 		SR_KEMIP_BOOL, sr_kemi_core_is_myself,
 		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("is_myself_ruri"),
+		SR_KEMIP_BOOL, sr_kemi_core_is_myself_ruri,
+		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("is_myself_furi"),
+		SR_KEMIP_BOOL, sr_kemi_core_is_myself_furi,
+		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("is_myself_turi"),
+		SR_KEMIP_BOOL, sr_kemi_core_is_myself_turi,
+		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},
 	{ str_init(""), str_init("setflag"),
@@ -825,8 +1131,18 @@ static sr_kemi_t _sr_kemi_core[] = {
 		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},
+	{ str_init(""), str_init("add_local_rport"),
+		SR_KEMIP_BOOL, sr_kemi_core_add_local_rport,
+		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
 	{ str_init(""), str_init("is_method"),
 		SR_KEMIP_BOOL, sr_kemi_core_is_method,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("is_method_in"),
+		SR_KEMIP_BOOL, sr_kemi_core_is_method_in,
 		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},
@@ -857,6 +1173,26 @@ static sr_kemi_t _sr_kemi_core[] = {
 	},
 	{ str_init(""), str_init("set_reply_no_connect"),
 		SR_KEMIP_BOOL, sr_kemi_core_set_reply_no_connect,
+		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("set_advertised_address"),
+		SR_KEMIP_INT, sr_kemi_core_set_advertised_address,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("set_advertised_port"),
+		SR_KEMIP_INT, sr_kemi_core_set_advertised_port,
+		{ SR_KEMIP_STR, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("add_tcp_alias"),
+		SR_KEMIP_INT, sr_kemi_core_add_tcp_alias,
+		{ SR_KEMIP_INT, SR_KEMIP_NONE, SR_KEMIP_NONE,
+			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
+	},
+	{ str_init(""), str_init("add_tcp_alias_via"),
+		SR_KEMIP_INT, sr_kemi_core_add_tcp_alias_via,
 		{ SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE,
 			SR_KEMIP_NONE, SR_KEMIP_NONE, SR_KEMIP_NONE }
 	},
