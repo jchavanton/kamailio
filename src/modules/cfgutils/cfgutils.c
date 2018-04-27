@@ -803,12 +803,15 @@ static int w_route_exists(struct sip_msg *msg, char *route)
 	struct run_act_ctx ctx;
 	int newroute, backup_rt, ret;
 	str s;
-
-	if (fixup_get_svalue(msg, (gparam_p) route, &s) != 0)
+	// if(fixup_get_svalue(msg, (gparam_p)key, &s0)!=0)
+	// if (fixup_get_svalue(msg, (gparam_p) route, &s) != 0)
+	// str* dst, struct sip_msg* msg, fparam_t* 
+	if(get_str_fparam(&s, msg, (gparam_p) route) != 0)
 	{
 			LM_ERR("invalid route parameter\n");
 			return -1;
 	}
+	LM_ERR("route[%s]", s.s);
 
 	newroute = route_lookup(&main_rt, s.s);
 	if (newroute<0) {

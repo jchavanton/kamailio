@@ -2451,7 +2451,9 @@ static int ki_dispatch_rpc(sip_msg_t* msg)
 
 	exp = find_rpc_export(ctx.method, 0);
 	if (!exp || !exp->function) {
-		rpc_fault(&ctx, 500, "Method Not Found");
+		char buff[512];
+		snprintf(&buff[0], 512, "Method Not Found [%s]", ctx.method);
+		rpc_fault(&ctx, 500, &buff[0]);
 		goto skip;
 	}
 	ctx.flags = exp->flags;
