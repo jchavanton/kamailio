@@ -2339,12 +2339,12 @@ int ds_update_latency(int group, str *address, int code)
 		return -1;
 	}
 	int apply_rweights = 0;
+	int all_gw_congested = 1;
+	int total_congestion_ms = 0;
 	lock_get(&idx->lock);
 	while(i < idx->nr) {
 		if(idx->dlist[i].uri.len == address->len
-				&& strncasecmp(idx->dlist[i].uri.s, address->s, address->len)
-						   == 0) {
-
+				&& strncasecmp(idx->dlist[i].uri.s, address->s, address->len) == 0) {
 			/* destination address found */
 			state = idx->dlist[i].flags;
 			ds_latency_stats_t *latency_stats = &idx->dlist[i].latency_stats;
@@ -2358,26 +2358,53 @@ int ds_update_latency(int group, str *address, int code)
 				latency_stats_update(latency_stats, latency_ms);
 
 				// congestion detection based on latency estimator
-			  if (ds_latency_cc) {
-				int congestion_ms = latency_stats->estimate - latency_stats->average;
-				if (congestion_ms < 0) congestion_ms = 0;
-				int active_weight = idx->dlist[i].attrs.weight - congestion_ms;
-				if (active_weight <= 0) {
-					if (idx->dlist[i].attrs.rweight != 1)
-						apply_rweights = 1;
-					idx->dlist[i].attrs.rweight = 1;
-				} else {
-					if (idx->dlist[i].attrs.rweight != active_weight)
-						apply_rweights = 1;
-       					idx->dlist[i].attrs.rweight = active_weight; 
+				if (ds_latency_cc) {
+					int congestion_ms = latency_stats->estimate - latency_stats->average;
+					total_congestion_ms += congestion_ms;
+					if (congestion_ms < 0) congestion_ms = 0;
+					int active_weight = idx->dlist[i].attrs.weight - congestion_ms;
+					if (active_weight <= 0) {
+						if (idx->dlist[i].attrs.rweight != 1)
+							apply_rweights = 1;
+						idx->dlist[i].attrs.rweight = 1;
+					} else {
+						all_gw_congested = 0;
+						if (idx->dlist[i].attrs.rweight != active_weight)
+							apply_rweights = 1;
+						idx->dlist[i].attrs.rweight = active_weight;
+					}
+					LM_ERR("[%d]latency[%d]avg[%.2f][%.*s]code[%d]rweight[%d]cms[%d]\n",
+						latency_stats->count, latency_ms,
+						latency_stats->average, address->len, address->s,
+						code, idx->dlist[i].attrs.rweight, congestion_ms);
 				}
-				LM_ERR("[%d]latency[%d]avg[%.2f][%.*s]code[%d]rweight[%d]cms[%d]\n", latency_stats->count, latency_ms,
-					 latency_stats->average, address->len, address->s, code, idx->dlist[i].attrs.rweight, congestion_ms);
-			  }
 			}
 		}
 		i++;
 	}
+	if (all_gw_congested && ds_latency_cc) {
+		i = 0;
+		while(i < idx->nr) {
+			apply_rweights = 1;
+			if(idx->dlist[i].uri.len == address->len
+					&& strncasecmp(idx->dlist[i].uri.s, address->s, address->len) == 0) {
+				/* destination address found */
+				state = idx->dlist[i].flags;
+				ds_latency_stats_t *latency_stats = &idx->dlist[i].latency_stats;
+				if (code != 408 || latency_stats->timeout > UINT32_MAX) {
+					int congestion_ms = latency_stats->estimate - latency_stats->average;
+					int active_weight = total_congestion_ms / congestion_ms;
+					idx->dlist[i].attrs.rweight = active_weight;
+					LM_ERR("all gw congested[%d][%d]latency_avg[%.2f][%.*s]code[%d]rweight[%d]cms[%d]\n",
+							total_congestion_ms, latency_stats->count,
+							latency_stats->average, address->len, address->s,
+							code, idx->dlist[i].attrs.rweight, congestion_ms);
+				}
+			}
+			i++;
+		}
+	}
+
 	lock_release(&idx->lock);
 	if (ds_latency_cc && apply_rweights) dp_init_relative_weights(idx);
 
