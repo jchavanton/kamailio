@@ -278,31 +278,6 @@ modparam("topos", "event_mode", 2)
 </programlisting>
 		</example>
 	</section>
-	<section id="topos.p.contact_host">
-		<title><varname>contact_host</varname> (str)</title>
-		<para>
-			You may need to control the host part of the Contact header added
-			by topos.
-
-			For example when using TLS with TOPOS the remote UAS must be able to open
-			a new TLS socket to the contact header.
-			In this case, the contact header must contain a domain name with a trusted CA
-			signed certitificate.
-		</para>
-		<para>
-		<emphasis>
-			Default value is taken from the Record-Route URI.
-		</emphasis>
-		</para>
-		<example>
-		<title>Set <varname>contact_host</varname> parameter</title>
-		<programlisting format="linespecific">
-...
-modparam("topos", "contact_host", "proxy.domain.com")
-...
-</programlisting>
-		</example>
-	</section>
 	</section>
 	<section>
 	<title>Event Routes</title>
@@ -326,6 +301,30 @@ modparam("topos", "contact_host", "proxy.domain.com")
 ...
 event_route[topos:msg-outgoing] {
   if($sndto(ip)=="10.1.1.10") {
+    drop;
+  }
+}
+...
+</programlisting>
+		</example>
+	</section>
+	<section>
+		<title>event_route[topos:msg-sending]</title>
+		<para>
+		It is executed before doing topology stripping processing for a SIP
+		message to be sent out, being executed after event_route[topos:sending].
+		</para>
+		<para>
+		Inside the event route the variables $sndto(ip), $sndto(port) and
+		$sndto(proto) point to the destination. The SIP message is the one
+		to be sent out.
+		</para>
+		<example>
+		<title>Usage of event_route[topos:msg-sending]</title>
+		<programlisting format="linespecific">
+...
+event_route[topos:msg-sending] {
+  if(is_request() and $fU=="alice") {
     drop;
   }
 }
