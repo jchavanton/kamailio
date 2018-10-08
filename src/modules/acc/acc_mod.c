@@ -70,6 +70,7 @@ static int child_init(int rank);
 /* what would you like to report on */
 
 int early_media = 0;		/*!< should early media replies (183) be logged ? default==no */
+int report_progress = 0;		/*!< should early media replies (18x) be logged ? default==no */
 int report_cancels = 0;		/*!< would you like us to report CANCELs from upstream too? */
 int report_ack = 0;		/*!< report e2e ACKs too */
 int detect_direction = 0;	/*!< detect and correct direction in the sequential requests */
@@ -184,6 +185,7 @@ static cmd_export_t cmds[] = {
 
 static param_export_t params[] = {
 	{"early_media",             INT_PARAM, &early_media             },
+	{"report_progress",         INT_PARAM, &report_progress         },
 	{"failed_transaction_flag", INT_PARAM, &failed_transaction_flag },
 	{"failed_filter",           PARAM_STRING, &failed_filter_str       },
 	{"report_ack",              INT_PARAM, &report_ack              },

@@ -427,9 +427,10 @@ static inline int should_acc_reply(struct sip_msg *req, struct sip_msg *rpl,
 	if ( !is_acc_on(req) )
 		return 0;
 
-	if ( code<200 && !(early_media &&
+	if ((code<200 && code >=180 && report_progress)
+	 || (code<200 && !(early_media &&
 				parse_headers(rpl,HDR_CONTENTLENGTH_F, 0) == 0 &&
-				rpl->content_length && get_content_length(rpl) > 0))
+				rpl->content_length && get_content_length(rpl) > 0)))
 		return 0;
 
 	return 1; /* seed is through, we will account this reply */

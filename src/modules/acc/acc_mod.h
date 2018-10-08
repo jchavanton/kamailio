@@ -37,6 +37,7 @@
 extern int report_cancels;
 extern int report_ack;
 extern int early_media;
+extern int report_progress;
 extern int failed_transaction_flag;
 extern unsigned short failed_filter[];
 extern int detect_direction;
