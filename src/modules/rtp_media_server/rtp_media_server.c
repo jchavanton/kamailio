@@ -426,7 +426,7 @@ int rms_sessions_dump(struct sip_msg* msg, char* param1, char* param2) {
 	int x=1;
 	rms_session_info_t *si;
 	clist_foreach(rms_session_list, si, next){
-		LM_INFO("[%d] callid[%s] from[%s] to[%s] cseq[%d]", x, si->callid.s, si->from.s, si->to.s, si->cseq);
+		LM_INFO("[%d] callid[%s] from[%s] to[%s] cseq[%d]\n", x, si->callid.s, si->from.s, si->to.s, si->cseq);
 		x++;
 	}
 	return 1;
@@ -476,6 +476,7 @@ int rms_create_call_leg(struct sip_msg* msg, rms_session_info_t *si, call_leg_me
 	m->local_ip = server_address.s;
 	m->remote_port = atoi(sdp_info->remote_port);
 	m->remote_ip = sdp_info->remote_ip;
+	m->callid = &si->callid;
 
 	LM_INFO("remote_socket[%s:%s] local_socket[%s:%d] pt[%s]\n",
 			sdp_info->remote_ip, sdp_info->remote_port,

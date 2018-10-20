@@ -131,6 +131,7 @@ int rms_playfile(call_leg_media_t *m, char* file_name) {
 	//m->ms_recorder = ms_factory_create_filter(m->ms_factory, MS_FILE_PLAYER_ID);
 	m->ms_voidsink = ms_factory_create_filter(m->ms_factory, MS_VOID_SINK_ID);
 	//ms_filter_add_notify_callback(m->ms_player, (MSFilterNotifyFunc) rms_player_eof, m, TRUE);
+	LM_NOTICE("m[%p]call-id[%p]\n", m, m->callid);
 	ms_filter_add_notify_callback(m->ms_player, rms_player_eof, m, TRUE);
 	ms_filter_call_method(m->ms_player, MS_FILE_PLAYER_OPEN, (void *) file_name);
 	int channels = 1;
