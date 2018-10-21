@@ -21,7 +21,7 @@ static char* rms_shm_strdup(char *source) {
 	char *copy;
 	if (!source)
 		return NULL;
-	copy = (char*)shm_malloc(strlen(source) + 1);
+	copy = (char*)ortp_malloc(strlen(source) + 1);
 	if (!copy)
 		return NULL;
 	strcpy(copy, source);

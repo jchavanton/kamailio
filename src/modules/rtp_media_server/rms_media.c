@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Julien Chavanton jchavanton@gmail.com
+ * Copyright (C) 2017-2018 Julien Chavanton jchavanton@gmail.com
  *
  * This file is part of Kamailio, a free SIP server.
  *
@@ -22,8 +22,6 @@
 #include "rms_media.h"
 #include "rtp_media_server_call.h"
 
-
-
 inline static void* ptr_shm_malloc(size_t size) {
 	return shm_malloc(size);
 }
@@ -35,17 +33,46 @@ inline static void ptr_shm_free(void *ptr) {
 }
 
 typedef struct shared_global_vars {
-	MSFactory *ms_factory; // = ms_factory_new_with_voip();
+	MSFactory *ms_factory;
 	gen_lock_t lock;
 } shared_global_vars_t;
 
 static shared_global_vars_t *vars;
 
+MSFilterDesc * rms_ms_filter_descs[]={
+&ms_alaw_dec_desc,
+&ms_alaw_enc_desc,
+&ms_ulaw_dec_desc,
+&ms_ulaw_enc_desc,
+&ms_rtp_send_desc,
+&ms_rtp_recv_desc,
+&ms_dtmf_gen_desc,
+&ms_volume_desc,
+&ms_equalizer_desc,
+&ms_channel_adapter_desc,
+&ms_audio_mixer_desc,
+&ms_tone_detector_desc,
+&ms_speex_dec_desc,
+&ms_speex_enc_desc,
+&ms_speex_ec_desc,
+&ms_file_player_desc,
+&ms_file_rec_desc,
+&ms_resample_desc,
+&ms_opus_dec_desc,
+&ms_opus_enc_desc,
+NULL
+};
+
 static MSFactory * rms_create_factory() {
-	vars->ms_factory = ms_factory_new_with_voip();
-	ms_factory_enable_statistics(vars->ms_factory, TRUE);
-	ms_factory_reset_statistics(vars->ms_factory);
-	return vars->ms_factory;
+	MSFactory *f = ms_factory_new();
+	int i;
+	for (i=0;rms_ms_filter_descs[i]!=NULL;i++){
+		ms_factory_register_filter(f,rms_ms_filter_descs[i]);
+	}
+	ms_factory_init_plugins(f);
+	ms_factory_enable_statistics(f, TRUE);
+	ms_factory_reset_statistics(f);
+	return f;
 }
 
 int rms_media_init() {
@@ -55,29 +82,32 @@ int rms_media_init() {
 	ortp_memory_functions.free_fun = ptr_shm_free;
 	ortp_set_memory_functions(&ortp_memory_functions);
 	ortp_init();
-
-	vars = shm_malloc(sizeof(shared_global_vars_t));
-	rms_create_factory();
+	vars = ortp_malloc(sizeof(shared_global_vars_t));
 	return 1;
 }
 
-//	ms_factory_destroy
 static MSTicker * rms_create_ticker(char *name) {
 	MSTickerParams params;
 	params.name = name;
 	params.prio = MS_TICKER_PRIO_NORMAL;
 	return ms_ticker_new_with_params(&params);
 }
-//	ms_ticker_destroy(ms_tester_ticker);
 
-void rms_media_destroy() {
-//	ms_factory_destroy(ms_factory);
+void rms_media_destroy(call_leg_media_t *m) {
+	LM_NOTICE("rtp_session_destroy\n");
+	rtp_session_destroy(m->rtps);
+	m->rtps=NULL;
+	ms_ticker_destroy(m->ms_ticker);
+	m->ms_ticker=NULL;
+	LM_NOTICE("ms_factory_destroy\n");
+	ms_factory_destroy(m->ms_factory);
+	m->ms_factory=NULL;
 }
 
 int create_call_leg_media(call_leg_media_t *m, str *callid){
 	//LM_NOTICE(" ...\n");
-	//m->ms_factory = rms_create_factory();
-	m->ms_factory = vars->ms_factory;
+	m->ms_factory = rms_create_factory();
+	// m->ms_factory = vars->ms_factory;
 	//LM_NOTICE(" ...\n");
 	//m->callid = callid;
 	// create caller RTP session
@@ -124,6 +154,34 @@ static void rms_player_eof(void *user_data, MSFilter *f, unsigned int event, voi
 	MS_UNUSED(f), MS_UNUSED(event_data);
 }
 
+
+int rms_stop_bridge(call_leg_media_t *m1, call_leg_media_t *m2) {
+	if (!m1->ms_ticker)
+		return -1;
+	MSConnectionHelper h;
+	if (m1->ms_rtpsend) ms_ticker_detach(m1->ms_ticker, m1->ms_rtpsend);
+	if (m1->ms_rtprecv) ms_ticker_detach(m1->ms_ticker, m1->ms_rtprecv);
+	if (m2->ms_rtpsend) ms_ticker_detach(m1->ms_ticker, m2->ms_rtpsend);
+	if (m2->ms_rtprecv) ms_ticker_detach(m1->ms_ticker, m2->ms_rtprecv);
+	rtp_stats_display(rtp_session_get_stats(m1->rtps)," AUDIO BRIDGE offer RTP STATISTICS ");
+	rtp_stats_display(rtp_session_get_stats(m2->rtps)," AUDIO BRIDGE answer RTP STATISTICS ");
+	ms_factory_log_statistics(m1->ms_factory);
+
+	ms_connection_helper_start(&h);
+	if (m1->ms_rtprecv) ms_connection_helper_unlink(&h, m1->ms_rtprecv,-1,0);
+	if (m2->ms_rtpsend) ms_connection_helper_unlink(&h, m2->ms_rtpsend,0,-1);
+
+	ms_connection_helper_start(&h);
+	if (m2->ms_rtprecv) ms_connection_helper_unlink(&h, m2->ms_rtprecv,-1,0);
+	if (m1->ms_rtpsend) ms_connection_helper_unlink(&h, m1->ms_rtpsend,0,-1);
+
+	if (m1->ms_rtpsend) ms_filter_destroy(m1->ms_rtpsend);
+	if (m1->ms_rtprecv) ms_filter_destroy(m1->ms_rtprecv);
+	if (m2->ms_rtpsend) ms_filter_destroy(m2->ms_rtpsend);
+	if (m2->ms_rtprecv) ms_filter_destroy(m2->ms_rtprecv);
+	return 1;
+}
+
 int rms_playfile(call_leg_media_t *m, char* file_name) {
 	MSConnectionHelper h;
 	m->ms_ticker = rms_create_ticker(NULL);
@@ -152,34 +210,6 @@ int rms_playfile(call_leg_media_t *m, char* file_name) {
 	ms_connection_helper_link(&h, m->ms_voidsink, 0, -1);
 
 	ms_ticker_attach_multiple(m->ms_ticker, m->ms_player, m->ms_rtprecv, NULL);
-
-	return 1;
-}
-
-int rms_stop_bridge(call_leg_media_t *m1, call_leg_media_t *m2) {
-	if (!m1->ms_ticker)
-		return -1;
-	MSConnectionHelper h;
-	if (m1->ms_rtpsend) ms_ticker_detach(m1->ms_ticker, m1->ms_rtpsend);
-	if (m1->ms_rtprecv) ms_ticker_detach(m1->ms_ticker, m1->ms_rtprecv);
-	if (m2->ms_rtpsend) ms_ticker_detach(m1->ms_ticker, m2->ms_rtpsend);
-	if (m2->ms_rtprecv) ms_ticker_detach(m1->ms_ticker, m2->ms_rtprecv);
-	rtp_stats_display(rtp_session_get_stats(m1->rtps)," AUDIO BRIDGE offer RTP STATISTICS ");
-	rtp_stats_display(rtp_session_get_stats(m2->rtps)," AUDIO BRIDGE answer RTP STATISTICS ");
-	ms_factory_log_statistics(m1->ms_factory);
-
-	ms_connection_helper_start(&h);
-	if (m1->ms_rtprecv) ms_connection_helper_unlink(&h, m1->ms_rtprecv,-1,0);
-	if (m2->ms_rtpsend) ms_connection_helper_unlink(&h, m2->ms_rtpsend,0,-1);
-
-	ms_connection_helper_start(&h);
-	if (m2->ms_rtprecv) ms_connection_helper_unlink(&h, m2->ms_rtprecv,-1,0);
-	if (m1->ms_rtpsend) ms_connection_helper_unlink(&h, m1->ms_rtpsend,0,-1);
-
-	if (m1->ms_rtpsend) ms_filter_destroy(m1->ms_rtpsend);
-	if (m1->ms_rtprecv) ms_filter_destroy(m1->ms_rtprecv);
-	if (m2->ms_rtpsend) ms_filter_destroy(m2->ms_rtpsend);
-	if (m2->ms_rtprecv) ms_filter_destroy(m2->ms_rtprecv);
 	return 1;
 }
 
@@ -211,5 +241,7 @@ int rms_stop_media(call_leg_media_t *m) {
 	if (m->ms_rtpsend) ms_filter_destroy(m->ms_rtpsend);
 	if (m->ms_rtprecv) ms_filter_destroy(m->ms_rtprecv);
 	if (m->ms_voidsink) ms_filter_destroy(m->ms_voidsink);
+
+	rms_media_destroy(m);
 	return 1;
 }

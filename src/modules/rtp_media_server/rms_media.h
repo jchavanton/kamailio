@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 Julien Chavanton jchavanton@gmail.com
+ * Copyright (C) 2017-2018 Julien Chavanton jchavanton@gmail.com
  *
  * This file is part of Kamailio, a free SIP server.
  *
@@ -30,6 +30,7 @@
 #include "mediastreamer2/msfilerec.h"
 #include "mediastreamer2/msrtp.h"
 #include "mediastreamer2/mstonedetector.h"
+#include "mediastreamer2/msfilter.h"
 //#include <mediastreamer2/mediastream.h>
 #include <ortp/ortp.h>
 #include <ortp/port.h>
@@ -69,5 +70,30 @@ int rms_stop_media(call_leg_media_t *m);
 int rms_playfile(call_leg_media_t *m, char* file_name);
 int rms_bridge(call_leg_media_t *m1, call_leg_media_t *m2);
 int rms_stop_bridge(call_leg_media_t *m1, call_leg_media_t *m2);
+
+extern MSFilterDesc ms_pcap_file_player_desc;
+extern MSFilterDesc ms_rtp_send_desc;
+extern MSFilterDesc ms_rtp_recv_desc;
+extern MSFilterDesc ms_udp_send_desc;
+extern MSFilterDesc ms_alaw_dec_desc;
+extern MSFilterDesc ms_alaw_enc_desc;
+extern MSFilterDesc ms_ulaw_dec_desc;
+extern MSFilterDesc ms_ulaw_enc_desc;
+extern MSFilterDesc ms_dtmf_gen_desc;
+extern MSFilterDesc ms_volume_desc;
+extern MSFilterDesc ms_equalizer_desc;
+extern MSFilterDesc ms_channel_adapter_desc;
+extern MSFilterDesc ms_audio_mixer_desc;
+extern MSFilterDesc ms_tone_detector_desc;
+extern MSFilterDesc ms_genericplc_desc;
+extern MSFilterDesc ms_file_player_desc;
+extern MSFilterDesc ms_file_rec_desc;
+extern MSFilterDesc ms_vad_dtx_desc;
+extern MSFilterDesc ms_speex_dec_desc;
+extern MSFilterDesc ms_speex_enc_desc;
+extern MSFilterDesc ms_speex_ec_desc;
+extern MSFilterDesc ms_opus_enc_desc;
+extern MSFilterDesc ms_opus_dec_desc;
+extern MSFilterDesc ms_resample_desc;
 
 #endif

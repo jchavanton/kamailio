@@ -80,9 +80,9 @@ static int mod_init(void) {
 	rms.udp_start_port = 50000;
 	rms.udp_end_port = 60000;
 	rms.udp_last_port = 50000;
-	rms_session_list = shm_malloc(sizeof(rms_session_info_t));
-	clist_init(rms_session_list,next,prev);
 	rms_media_init();
+	rms_session_list = ortp_malloc(sizeof(rms_session_info_t));
+	clist_init(rms_session_list,next,prev);
 
 	if (load_tm_api(&tmb)!=0) {
 		LM_ERR( "can't load TM API\n");
@@ -151,7 +151,7 @@ int rms_str_dup(str* dst, str* src, int shared) {
 		return 0;
 	}
 	if (shared) {
-		dst->s = shm_malloc(src->len +1);
+		dst->s = ortp_malloc(src->len +1);
 	} else {
 		dst->s = pkg_malloc(src->len +1);
 	}
@@ -272,8 +272,8 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	to_tag.s = "faketotag";
 	to_tag.len = strlen("faketotag");
 	si->to.len = snprintf(buffer, 128, "%s;tag=%s", si->to.s, to_tag.s);
-	shm_free(si->to.s);
-	si->to.s = shm_malloc(si->to.len+1);
+	ortp_free(si->to.s);
+	si->to.s = ortp_malloc(si->to.len+1);
 	strcpy(si->to.s, buffer);
 	LM_INFO("[to] %s\n", si->to.s);
 
@@ -359,18 +359,18 @@ int rms_session_free(rms_session_info_t *si) {
 		si->callee_media.pt = NULL;
 	}
 	if (si->callid.s) {
-		shm_free(si->callid.s);
+		ortp_free(si->callid.s);
 		si->callid.s = NULL;
 	}
 	if (si->from.s) {
-		shm_free(si->from.s);
+		ortp_free(si->from.s);
 		si->from.s = NULL;
 	}
 	if (si->to.s) {
-		shm_free(si->to.s);
+		ortp_free(si->to.s);
 		si->to.s = NULL;
 	}
-	shm_free(si);
+	ortp_free(si);
 	si = NULL;
 	return 1;
 }
@@ -378,7 +378,7 @@ int rms_session_free(rms_session_info_t *si) {
 rms_session_info_t *rms_session_new(struct sip_msg* msg) {
 	if(!rms_check_msg(msg))
 		return NULL;
-	rms_session_info_t *si = shm_malloc(sizeof(rms_session_info_t));
+	rms_session_info_t *si = ortp_malloc(sizeof(rms_session_info_t));
 	if (!si) {
 		LM_ERR("can not allocate session info !\n");
 		return NULL;
@@ -445,9 +445,10 @@ int rms_media_stop(struct sip_msg* msg, char* param1, char* param2) {
 	}
 	LM_INFO("session found [%s] stopping [%p][%p]\n", si->callid.s, si->caller_media.rtps, si->callee_media.rtps);
 	if (si->callee_media.rtps) {
-		LM_INFO("stop bridged call");
+		LM_NOTICE("stop bridged call\n");
 		rms_stop_bridge(&si->caller_media, &si->callee_media);
 	} else {
+		LM_NOTICE("stop media\n");
 		rms_stop_media(&si->caller_media);
 	}
 	rms_session_free(si);
