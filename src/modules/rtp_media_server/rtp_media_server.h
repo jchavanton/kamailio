@@ -69,6 +69,7 @@ typedef struct rms_session_info {
 	rms_sdp_info_t sdp_info_offer;
 	rms_sdp_info_t sdp_info_answer;
 	str callid;
+	str local_tag;
 	str from;
 	str to;
 	str contact_uri;

@@ -46,6 +46,7 @@ typedef struct call_leg_media {
 	MSFilter *ms_decoder;
 	MSFilter *ms_rtprecv;
 	MSFilter *ms_rtpsend;
+	MSFilter *ms_resampler;
 	MSFilter *ms_player;
 	MSFilter *ms_recorder;
 	MSFilter *ms_dtmfgen;

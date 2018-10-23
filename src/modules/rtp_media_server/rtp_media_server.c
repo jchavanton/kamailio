@@ -241,7 +241,6 @@ str from = str_init("media_server@127.0.0.101");
 static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	int status = 0;
 	str reason;
-	str to_tag;
 	str contact_hdr;
 	rms_sdp_info_t *sdp_info = &si->sdp_info_offer;
 
@@ -269,16 +268,16 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	rms_sdp_prepare_new_body(sdp_info, si->caller_media.pt->type);
 	reason = method_ok;
 	// add real totag
-	to_tag.s = "faketotag";
-	to_tag.len = strlen("faketotag");
-	si->to.len = snprintf(buffer, 128, "%s;tag=%s", si->to.s, to_tag.s);
-	ortp_free(si->to.s);
-	si->to.s = ortp_malloc(si->to.len+1);
-	strcpy(si->to.s, buffer);
+	si->local_tag.s = "faketotag";
+	si->local_tag.len = strlen("faketotag");
+	//si->to.len = snprintf(buffer, 128, "%s;tag=%s", si->to.s, si->local_tag.s);
+	//ortp_free(si->to.s);
+	//si->to.s = ortp_malloc(si->to.len+1);
+	//strcpy(si->to.s, buffer);
 	LM_INFO("[to] %s\n", si->to.s);
 
 	LM_INFO("reply !\n");
-	if(!tmb.t_reply_with_body(tmb.t_gett(),200,&reason,&sdp_info->new_body,&contact_hdr,&to_tag)) {
+	if(!tmb.t_reply_with_body(tmb.t_gett(),200,&reason,&sdp_info->new_body,&contact_hdr,&si->local_tag)) {
 		LM_INFO("t_reply error");
 	}
 	LM_INFO("answered\n");
@@ -298,6 +297,7 @@ static rms_session_info_t * rms_session_search(char *callid, int len) {
 	return NULL;
 }
 
+
 int rms_hangup_call(str *callid) {
 	uac_req_t uac_r;
 	int result;
@@ -309,29 +309,23 @@ int rms_hangup_call(str *callid) {
 	}
 	LM_INFO("rms_hangup_call[%s]from[%s]to[%s]\n", callid->s, si->from.s, si->to.s);
 	LM_INFO("[contact] [%.*s]\n", si->contact_uri.len, si->contact_uri.s);
-/*
-	//	#define set_uac_req(_req, \
-	//			_m, _h, _b, _dlg, _cb_flags, _cb, _cbp) \
-	//		do { \
-	//			memset((_req), 0, sizeof(uac_req_t)); \
-	//			(_req)->method = (_m); \
-	//			(_req)->headers = (_h); \
-	//			(_req)->body = (_b); \
-	//			(_req)->dialog = (_dlg); \
-	//			(_req)->cb_flags = (_cb_flags); \
-	//			(_req)->cb = (_cb); \
-	//			(_req)->cbp = (_cbp); \
-	//		} while (0)
-*/
-	set_uac_req(&uac_r, &method_bye, &headers, &body, NULL,
-		TMCB_LOCAL_COMPLETED, NULL, NULL);
-	uac_r.callid = callid;
-
+	dlg_t* dialog = NULL;
+	if (tmb.new_dlg_uac(&si->callid, &si->local_tag, si->cseq, &si->to, &si->from, &dialog) < 0) {
+		LM_ERR("error in tmb.new_dlg_uac\n");
+		return -1;
+	}
+	dialog->rem_target.s = si->contact_uri.s;
+	dialog->rem_target.len = si->contact_uri.len;
+	// uac_r.callid = callid;
 	uac_r.ssock = &server_socket;
-	result = tmb.t_request(&uac_r, &si->contact_uri, &si->to, &si->from, NULL);
+	// result = tmb.t_request(&uac_r, &si->contact_uri, &si->from, &si->to, NULL);
+	set_uac_req(&uac_r, &method_bye, &headers, &body, dialog, TMCB_LOCAL_COMPLETED, NULL, NULL);
+	result = tmb.t_request_within(&uac_r);
 	if(result < 0) {
 		LM_ERR("error in tmb.t_request\n");
 		return -1;
+	} else {
+		LM_ERR("tmb.t_request_within ok\n");
 	}
 	return 1;
 }
@@ -361,6 +355,10 @@ int rms_session_free(rms_session_info_t *si) {
 	if (si->callid.s) {
 		ortp_free(si->callid.s);
 		si->callid.s = NULL;
+	}
+	if (si->contact_uri.s) {
+		ortp_free(si->contact_uri.s);
+		si->contact_uri.s = NULL;
 	}
 	if (si->from.s) {
 		ortp_free(si->from.s);

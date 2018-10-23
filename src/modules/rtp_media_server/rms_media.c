@@ -94,22 +94,19 @@ static MSTicker * rms_create_ticker(char *name) {
 }
 
 void rms_media_destroy(call_leg_media_t *m) {
-	LM_NOTICE("rtp_session_destroy\n");
+	LM_NOTICE("rtp_session_destroy[%p]\n", m->rtps);
 	rtp_session_destroy(m->rtps);
 	m->rtps=NULL;
+	LM_NOTICE("ms_ticker[%p]\n", m->ms_ticker);
 	ms_ticker_destroy(m->ms_ticker);
 	m->ms_ticker=NULL;
-	LM_NOTICE("ms_factory_destroy\n");
+	LM_NOTICE("ms_factory_destroy[%p]\n", m->ms_factory);
 	ms_factory_destroy(m->ms_factory);
 	m->ms_factory=NULL;
 }
 
 int create_call_leg_media(call_leg_media_t *m, str *callid){
-	//LM_NOTICE(" ...\n");
 	m->ms_factory = rms_create_factory();
-	// m->ms_factory = vars->ms_factory;
-	//LM_NOTICE(" ...\n");
-	//m->callid = callid;
 	// create caller RTP session
 	m->rtps = ms_create_duplex_rtp_session(m->local_ip, m->local_port, m->local_port+1, ms_factory_get_mtu(m->ms_factory));
 	rtp_session_set_remote_addr_full(m->rtps, m->remote_ip, m->remote_port, m->remote_ip, m->remote_port+1);
@@ -118,8 +115,10 @@ int create_call_leg_media(call_leg_media_t *m, str *callid){
 	// create caller filters : rtprecv1/rtpsend1/encoder1/decoder1
 	m->ms_rtprecv = ms_factory_create_filter(m->ms_factory, MS_RTP_RECV_ID);
 	m->ms_rtpsend = ms_factory_create_filter(m->ms_factory, MS_RTP_SEND_ID);
+	// m->ms_resampler = ms_factory_create_filter(m->ms_factory, MS_RESAMPLE_ID);
 	m->ms_encoder = ms_factory_create_encoder(m->ms_factory, m->pt->mime_type);
 	m->ms_decoder = ms_factory_create_decoder(m->ms_factory, m->pt->mime_type);
+
 	/* set filter params */
 	ms_filter_call_method(m->ms_rtpsend, MS_RTP_SEND_SET_SESSION, m->rtps);
 	ms_filter_call_method(m->ms_rtprecv, MS_RTP_RECV_SET_SESSION, m->rtps);
@@ -199,6 +198,7 @@ int rms_playfile(call_leg_media_t *m, char* file_name) {
 	// sending graph
 	ms_connection_helper_start(&h);
 	ms_connection_helper_link(&h, m->ms_player, -1, 0);
+	if (m->ms_resampler) ms_connection_helper_link(&h, m->ms_resampler, 0, 0);
 	ms_connection_helper_link(&h, m->ms_encoder, 0, 0);
 	ms_connection_helper_link(&h, m->ms_rtpsend, 0, -1);
 	//ms_ticker_attach(m->ms_ticker, m->ms_player);
@@ -218,10 +218,11 @@ int rms_stop_media(call_leg_media_t *m) {
 		return -1;
 	MSConnectionHelper h;
 	if (m->ms_player) ms_ticker_detach(m->ms_ticker, m->ms_player);
-	if (m->ms_encoder) ms_ticker_detach(m->ms_ticker, m->ms_encoder);
-	if (m->ms_rtpsend) ms_ticker_detach(m->ms_ticker, m->ms_rtpsend);
+	//if (m->ms_resampler) ms_ticker_detach(m->ms_ticker, m->ms_resampler);
+	//if (m->ms_encoder) ms_ticker_detach(m->ms_ticker, m->ms_encoder);
+	//if (m->ms_rtpsend) ms_ticker_detach(m->ms_ticker, m->ms_rtpsend);
 	if (m->ms_rtprecv) ms_ticker_detach(m->ms_ticker, m->ms_rtprecv);
-	if (m->ms_voidsink) ms_ticker_detach(m->ms_ticker, m->ms_voidsink);
+	//if (m->ms_voidsink) ms_ticker_detach(m->ms_ticker, m->ms_voidsink);
 
 	rtp_stats_display(rtp_session_get_stats(m->rtps)," AUDIO SESSION'S RTP STATISTICS ");
 	ms_factory_log_statistics(m->ms_factory);
@@ -229,6 +230,7 @@ int rms_stop_media(call_leg_media_t *m) {
 	/*dismantle the sending graph*/
 	ms_connection_helper_start(&h);
 	if (m->ms_player) ms_connection_helper_unlink(&h, m->ms_player,-1,0);
+	if (m->ms_resampler) ms_connection_helper_unlink(&h, m->ms_resampler,0,0);
 	if (m->ms_encoder) ms_connection_helper_unlink(&h, m->ms_encoder,0,0);
 	if (m->ms_rtpsend) ms_connection_helper_unlink(&h, m->ms_rtpsend,0,-1);
 	/*dismantle the receiving graph*/
@@ -237,8 +239,14 @@ int rms_stop_media(call_leg_media_t *m) {
 	if (m->ms_voidsink) ms_connection_helper_unlink(&h, m->ms_voidsink,0,-1);
 
 	if (m->ms_player) ms_filter_destroy(m->ms_player);
+	if (m->ms_resampler) ms_filter_destroy(m->ms_resampler);
 	if (m->ms_encoder) ms_filter_destroy(m->ms_encoder);
-	if (m->ms_rtpsend) ms_filter_destroy(m->ms_rtpsend);
+	if (m->ms_rtpsend) {
+		LM_ERR("detroy rtpsend\n");
+		ms_filter_destroy(m->ms_rtpsend);
+	} else {
+		LM_ERR("no rtpsend\n");
+	}
 	if (m->ms_rtprecv) ms_filter_destroy(m->ms_rtprecv);
 	if (m->ms_voidsink) ms_filter_destroy(m->ms_voidsink);
 
