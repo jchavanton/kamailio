@@ -239,6 +239,31 @@ str server_socket = {0,0};
 str to = str_init("caller@127.0.0.111");
 str from = str_init("media_server@127.0.0.101");
 
+
+#define PIT_MATCHES(param) \
+	(pit->name.len == sizeof((param))-1 && \
+		strncmp(pit->name.s, (param), sizeof((param))-1)==0)
+int parse_from(struct sip_msg* msg, rms_session_info_t *si) {
+	struct sip_uri uri;
+	parse_uri(msg->from->body.s, msg->from->body.len, &uri);
+	LM_NOTICE("<%.*s@%.*s>%.*s;\n", uri.user.len, uri.user.s, uri.host.len, uri.host.s, uri.params.len, uri.params.s );
+	param_t* params=NULL;
+	param_hooks_t phooks;
+	param_t* pit=NULL;
+	if (parse_params(&uri.params, CLASS_URI, &phooks, &pit)<0) {
+		ERR("Failed parsing params value\n");
+		return -1;
+	}
+	for (; pit;pit=pit->next) {
+		if PIT_MATCHES("tag") {
+			LM_NOTICE("tag[%.*s]\n", pit->body.len, pit->body.s);
+			rms_str_dup(&si->remote_tag, &pit->body, 1);
+		}
+	}
+	if (params) free_params(params);
+	return 1;
+}
+
 static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	int status = 0;
 	str reason;
@@ -246,17 +271,21 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	rms_sdp_info_t *sdp_info = &si->sdp_info_offer;
 
 	if(msg->REQ_METHOD!=METHOD_INVITE) {
-		LM_INFO("only invite is supported for offer \n");
+		LM_ERR("only invite is supported for offer \n");
 		return -1;
 	}
-
+	parse_from(msg, si);
+	if (si->remote_tag.len == 0) {
+		LM_ERR("can not find from tag\n");
+		return -1;
+	}
 	status = tmb.t_newtran(msg);
 	LM_INFO("invite new transaction[%d]\n", status);
 	if(status < 0) {
-		LM_INFO("error creating transaction \n");
+		LM_ERR("error creating transaction \n");
 		return -1;
 	} else if (status == 0) {
-		LM_INFO("retransmission");
+		LM_DBG("retransmission");
 		return 0;
 	}
 
@@ -280,6 +309,7 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	return 1;
 }
 
+// TODO: tag matching ...
 static rms_session_info_t * rms_session_search(char *callid, int len) {
 	lock(&session_list_mutex);
 	rms_session_info_t *si;
@@ -304,12 +334,14 @@ int rms_hangup_call(str *callid) {
 	}
 	si->action = RMS_STOP;
 	LM_INFO("rms_hangup_call[%s]remote_uri[%s]local_uri[%s]\n", callid->s, si->remote_uri.s, si->local_uri.s);
-	LM_INFO("[contact] [%.*s]\n", si->contact_uri.len, si->contact_uri.s);
+	LM_INFO("contact[%.*s]\n", si->contact_uri.len, si->contact_uri.s);
 	dlg_t* dialog = NULL;
 	if (tmb.new_dlg_uac(&si->callid, &si->local_tag, si->cseq, &si->local_uri, &si->remote_uri, &dialog) < 0) {
 		LM_ERR("error in tmb.new_dlg_uac\n");
 		return -1;
 	}
+	dialog->id.rem_tag.s = si->remote_tag.s;
+	dialog->id.rem_tag.len = si->remote_tag.len;
 	dialog->rem_target.s = si->contact_uri.s;
 	dialog->rem_target.len = si->contact_uri.len;
 	uac_r.ssock = &server_socket;
@@ -452,11 +484,11 @@ int rms_media_stop(struct sip_msg* msg, char* param1, char* param2) {
 
 static int rms_get_udp_port(void) {
 	// RTP UDP port
-	LM_INFO("last port[%d]", rms.udp_last_port);
+	LM_INFO("last port[%d]\n", rms.udp_last_port);
 	rms.udp_last_port += 2;
 	if (rms.udp_last_port > rms.udp_end_port)
 		rms.udp_last_port = rms.udp_start_port;
-	LM_INFO("last port[%d]", rms.udp_last_port);
+	LM_INFO("last port[%d]\n", rms.udp_last_port);
 	return rms.udp_last_port;
 }
 

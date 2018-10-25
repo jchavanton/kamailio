@@ -1541,7 +1541,7 @@ char* build_uac_req(str* method, str* headers, str* body, dlg_t* dialog,
 		return 0;
 	}
 	*len += via.len;
-
+	LM_NOTICE("[%.*s]\n", dialog->rem_uri.len, dialog->rem_uri.s);
 	if((p=q_memrchr(dialog->rem_uri.s, '>', dialog->rem_uri.len))!=NULL) {
 		if((p==dialog->rem_uri.s + dialog->rem_uri.len - 1)
 				|| *(p+1)==';') {
@@ -1552,6 +1552,7 @@ char* build_uac_req(str* method, str* headers, str* body, dlg_t* dialog,
 	} else {
 		tbracket = 1;
 	}
+	LM_NOTICE("[%.*s]\n", dialog->loc_uri.len, dialog->loc_uri.s);
 	if((p=q_memrchr(dialog->loc_uri.s, '>', dialog->loc_uri.len))!=NULL) {
 		if((p==dialog->loc_uri.s + dialog->loc_uri.len - 1)
 				|| *(p+1)==';') {
@@ -1562,7 +1563,8 @@ char* build_uac_req(str* method, str* headers, str* body, dlg_t* dialog,
 	} else {
 		fbracket = 1;
 	}
-
+	LM_NOTICE("[%.*s][%.*s][%.*s]\n",dialog->id.call_id.len, dialog->id.call_id.s, dialog->id.rem_tag.len, dialog->id.rem_tag.s, 
+			dialog->id.loc_tag.len , dialog->id.loc_tag.s);
 	*len += TO_LEN + dialog->rem_uri.len
 		+ (dialog->id.rem_tag.len ? (TOTAG_LEN + dialog->id.rem_tag.len) : 0)
 		+ CRLF_LEN;    /* To */
