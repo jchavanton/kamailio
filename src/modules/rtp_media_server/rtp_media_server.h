@@ -63,20 +63,27 @@ typedef struct ms_res {
 	RtpProfile *rtp_profile;
 } ms_res_t;
 
+typedef enum rms_action {
+	RMS_NONE,
+	RMS_STOP,
+} rms_action_t;
+
 typedef struct rms_session_info {
 	struct rms_session_info* next;
 	struct rms_session_info* prev;
 	rms_sdp_info_t sdp_info_offer;
 	rms_sdp_info_t sdp_info_answer;
 	str callid;
+	str local_uri;
 	str local_tag;
-	str from;
-	str to;
+	str remote_uri;
+	str remote_tag;
 	str contact_uri;
 	int cseq;
 	ms_res_t ms;
 	call_leg_media_t caller_media;
 	call_leg_media_t callee_media;
+	rms_action_t action;
 } rms_session_info_t;
 
 #endif

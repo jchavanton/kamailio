@@ -34,6 +34,7 @@ str log_fn = {0, 0};
 
 static rms_t rms;
 
+static rms_session_info_t * rms_session_search(char *callid, int len);
 static int fixup_rms_media_start(void** param, int param_no);
 
 static cmd_export_t cmds[] = {
@@ -249,6 +250,7 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 		return -1;
 	}
 	LM_INFO("invite processing\n");
+
 	status = tmb.t_newtran(msg);
 	LM_INFO("invite new transaction[%d]\n", status);
 	if(status < 0) {
@@ -267,16 +269,11 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	sdp_info->local_ip = server_address.s;
 	rms_sdp_prepare_new_body(sdp_info, si->caller_media.pt->type);
 	reason = method_ok;
-	// add real totag
+	// TODO add real totag
 	si->local_tag.s = "faketotag";
 	si->local_tag.len = strlen("faketotag");
-	//si->to.len = snprintf(buffer, 128, "%s;tag=%s", si->to.s, si->local_tag.s);
-	//ortp_free(si->to.s);
-	//si->to.s = ortp_malloc(si->to.len+1);
-	//strcpy(si->to.s, buffer);
-	LM_INFO("[to] %s\n", si->to.s);
+	LM_INFO("local_uri[%s]local_tag[%s]\n", si->local_uri.s, si->local_tag.s);
 
-	LM_INFO("reply !\n");
 	if(!tmb.t_reply_with_body(tmb.t_gett(),200,&reason,&sdp_info->new_body,&contact_hdr,&si->local_tag)) {
 		LM_INFO("t_reply error");
 	}
@@ -307,18 +304,16 @@ int rms_hangup_call(str *callid) {
 		LM_INFO("rms_hangup_call[%s] not found !\n", callid->s);
 		return 0;
 	}
-	LM_INFO("rms_hangup_call[%s]from[%s]to[%s]\n", callid->s, si->from.s, si->to.s);
+	LM_INFO("rms_hangup_call[%s]remote_uri[%s]local_uri[%s]\n", callid->s, si->remote_uri.s, si->local_uri.s);
 	LM_INFO("[contact] [%.*s]\n", si->contact_uri.len, si->contact_uri.s);
 	dlg_t* dialog = NULL;
-	if (tmb.new_dlg_uac(&si->callid, &si->local_tag, si->cseq, &si->to, &si->from, &dialog) < 0) {
+	if (tmb.new_dlg_uac(&si->callid, &si->local_tag, si->cseq, &si->local_uri, &si->remote_uri, &dialog) < 0) {
 		LM_ERR("error in tmb.new_dlg_uac\n");
 		return -1;
 	}
 	dialog->rem_target.s = si->contact_uri.s;
 	dialog->rem_target.len = si->contact_uri.len;
-	// uac_r.callid = callid;
 	uac_r.ssock = &server_socket;
-	// result = tmb.t_request(&uac_r, &si->contact_uri, &si->from, &si->to, NULL);
 	set_uac_req(&uac_r, &method_bye, &headers, &body, dialog, TMCB_LOCAL_COMPLETED, NULL, NULL);
 	result = tmb.t_request_within(&uac_r);
 	if(result < 0) {
@@ -360,13 +355,13 @@ int rms_session_free(rms_session_info_t *si) {
 		ortp_free(si->contact_uri.s);
 		si->contact_uri.s = NULL;
 	}
-	if (si->from.s) {
-		ortp_free(si->from.s);
-		si->from.s = NULL;
+	if (si->remote_uri.s) {
+		ortp_free(si->remote_uri.s);
+		si->remote_uri.s = NULL;
 	}
-	if (si->to.s) {
-		ortp_free(si->to.s);
-		si->to.s = NULL;
+	if (si->local_uri.s) {
+		ortp_free(si->local_uri.s);
+		si->local_uri.s = NULL;
 	}
 	ortp_free(si);
 	si = NULL;
@@ -387,9 +382,9 @@ rms_session_info_t *rms_session_new(struct sip_msg* msg) {
 		LM_ERR("can not get callid .\n");
 		return NULL;
 	}
-	if (!rms_str_dup(&si->from, &msg->from->body,1))
+	if (!rms_str_dup(&si->remote_uri, &msg->from->body,1))
 		return NULL;
-	if (!rms_str_dup(&si->to, &msg->to->body,1))
+	if (!rms_str_dup(&si->local_uri, &msg->to->body,1))
 		return NULL;
 
 	struct hdr_field* hdr = msg->contact;
@@ -424,7 +419,7 @@ int rms_sessions_dump(struct sip_msg* msg, char* param1, char* param2) {
 	int x=1;
 	rms_session_info_t *si;
 	clist_foreach(rms_session_list, si, next){
-		LM_INFO("[%d] callid[%s] from[%s] to[%s] cseq[%d]\n", x, si->callid.s, si->from.s, si->to.s, si->cseq);
+		LM_INFO("[%d]callid[%s]remote_uri[%s]local_uri[%s]cseq[%d]\n", x, si->callid.s, si->remote_uri.s, si->local_uri.s, si->cseq);
 		x++;
 	}
 	return 1;
@@ -529,13 +524,15 @@ int rms_sdp_answer(struct sip_msg* msg, char* param1, char* param2) {
 
 
 int rms_media_start(struct sip_msg* msg, str *playback_fn) {
+	if(rms_session_search(msg->callid->body.s, msg->callid->body.len))
+		return -1;
 	rms_session_info_t *si = rms_session_new(msg);
 	if (!si)
 		return -1;
 	rms_sdp_info_t *sdp_info = &si->sdp_info_offer;
-	if (!rms_create_call_leg(msg, si, &si->caller_media, sdp_info))
+	if (rms_create_call_leg(msg, si, &si->caller_media, sdp_info) < 1)
 		return -1;
-	if (!rms_answer_call(msg, si)) {
+	if (rms_answer_call(msg, si) < 1) {
 		return -1;
 	}
 	rms_playfile(&si->caller_media, playback_fn->s);

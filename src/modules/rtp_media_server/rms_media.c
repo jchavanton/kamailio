@@ -40,27 +40,27 @@ typedef struct shared_global_vars {
 static shared_global_vars_t *vars;
 
 MSFilterDesc * rms_ms_filter_descs[]={
-&ms_alaw_dec_desc,
-&ms_alaw_enc_desc,
-&ms_ulaw_dec_desc,
-&ms_ulaw_enc_desc,
-&ms_rtp_send_desc,
-&ms_rtp_recv_desc,
-&ms_dtmf_gen_desc,
-&ms_volume_desc,
-&ms_equalizer_desc,
-&ms_channel_adapter_desc,
-&ms_audio_mixer_desc,
-&ms_tone_detector_desc,
-&ms_speex_dec_desc,
-&ms_speex_enc_desc,
-&ms_speex_ec_desc,
-&ms_file_player_desc,
-&ms_file_rec_desc,
-&ms_resample_desc,
-&ms_opus_dec_desc,
-&ms_opus_enc_desc,
-NULL
+	&ms_alaw_dec_desc,
+	&ms_alaw_enc_desc,
+	&ms_ulaw_dec_desc,
+	&ms_ulaw_enc_desc,
+	&ms_rtp_send_desc,
+	&ms_rtp_recv_desc,
+	&ms_dtmf_gen_desc,
+	&ms_volume_desc,
+	&ms_equalizer_desc,
+	&ms_channel_adapter_desc,
+	&ms_audio_mixer_desc,
+	&ms_tone_detector_desc,
+	&ms_speex_dec_desc,
+	&ms_speex_enc_desc,
+	&ms_speex_ec_desc,
+	&ms_file_player_desc,
+	&ms_file_rec_desc,
+	&ms_resample_desc,
+	&ms_opus_dec_desc,
+	&ms_opus_enc_desc,
+	NULL
 };
 
 static MSFactory * rms_create_factory() {
@@ -149,6 +149,7 @@ static void rms_player_eof(void *user_data, MSFilter *f, unsigned int event, voi
 	if (event == MS_FILE_PLAYER_EOF) {
 		call_leg_media_t *m = (call_leg_media_t *) user_data;
 		rms_hangup_call(m->callid);
+		rms_stop_media(m);
 	}
 	MS_UNUSED(f), MS_UNUSED(event_data);
 }
@@ -214,8 +215,11 @@ int rms_playfile(call_leg_media_t *m, char* file_name) {
 }
 
 int rms_stop_media(call_leg_media_t *m) {
-	if (!m->ms_ticker)
+	if (!m->ms_ticker){
+		LM_ERR("RMS STOP MEDIA\n");
 		return -1;
+	}
+	LM_ERR("STOP MED\n");
 	MSConnectionHelper h;
 	if (m->ms_player) ms_ticker_detach(m->ms_ticker, m->ms_player);
 	//if (m->ms_resampler) ms_ticker_detach(m->ms_ticker, m->ms_resampler);
