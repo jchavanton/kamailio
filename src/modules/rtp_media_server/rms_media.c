@@ -149,7 +149,6 @@ static void rms_player_eof(void *user_data, MSFilter *f, unsigned int event, voi
 	if (event == MS_FILE_PLAYER_EOF) {
 		call_leg_media_t *m = (call_leg_media_t *) user_data;
 		rms_hangup_call(m->callid);
-		rms_stop_media(m);
 	}
 	MS_UNUSED(f), MS_UNUSED(event_data);
 }

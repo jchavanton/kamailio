@@ -246,12 +246,9 @@ static inline int ack_matching(struct cell *p_cell, struct sip_msg *p_msg)
 }
 
 /* branch-based transaction matching */
-// static inline
-int via_matching( struct via_body *inv_via,
+static inline int via_matching( struct via_body *inv_via,
 		struct via_body *ack_via )
 {
-	LM_ERR("via_inv[%.*s]", inv_via->params.len, inv_via->params.s);
-	LM_ERR("via_ack[%.*s]", ack_via->params.len, ack_via->params.s);
 	if (inv_via->tid.len!=ack_via->tid.len)
 		return 0;
 	if (memcmp(inv_via->tid.s, ack_via->tid.s,
@@ -328,15 +325,12 @@ static int matching_3261( struct sip_msg *p_msg, struct cell **trans,
 
 	hash_bucket=&(get_tm_table()->entries[p_msg->hash_index]);
 	clist_foreach(hash_bucket, p_cell, next_c){
-		LM_NOTICE("hash bucket?\n");
 		prefetch_loc_r(p_cell->next_c, 1);
 		t_msg=p_cell->uas.request;
-		LM_NOTICE("unlikely(!t_msg)\n");
 		if (unlikely(!t_msg)) continue;/*don't try matching UAC transactions */
 		/* we want to set *cancel for transaction for which there is
 		 * already a canceled transaction (e.g. re-ordered INV-CANCEL, or
 		 *  INV blocked in dns lookup); we don't care about ACKs */
-		LM_NOTICE("is_ack\n");
 		if ((is_ack || (t_msg->REQ_METHOD!=METHOD_CANCEL)) &&
 				(skip_method & t_msg->REQ_METHOD))
 			continue;
@@ -357,7 +351,6 @@ static int matching_3261( struct sip_msg *p_msg, struct cell **trans,
 		/* dialog matching needs to be applied for ACK/200s but only if
 		 * this is a local transaction or its a proxied transaction interested
 		 *  in e2e ACKs (has E2EACK* callbacks installed) */
-		LM_NOTICE("is_ack < 300\n");
 		if (unlikely(is_ack && p_cell->uas.status<300)) {
 			if (unlikely(has_tran_tmcbs(p_cell,
 							TMCB_E2EACK_IN|TMCB_E2EACK_RETR_IN) ||
@@ -402,11 +395,8 @@ static int matching_3261( struct sip_msg *p_msg, struct cell **trans,
 		}
 		/* now real tid matching occurs  for negative ACKs and any
 		 * other requests */
-		if (!via_matching(t_msg->via1 /* inv via */, via1 /* ack */ )) {
-			LM_ERR("via not macthing\n");
+		if (!via_matching(t_msg->via1 /* inv via */, via1 /* ack */ ))
 			continue;
-		}
-			LM_ERR("via macthing\n");
 		/* check if call-id is still the same */
 		if (cfg_get(tm, tm_cfg, callid_matching)
 				&& !EQ_LEN(callid) && !EQ_STR(callid)) {
@@ -477,10 +467,8 @@ int t_lookup_request( struct sip_msg* p_msg , int leave_new_locked,
 		return 0;
 	}
 
-
 	/* start searching into the table */
 	if (!(p_msg->msg_flags & FL_HASH_INDEX)){
-		LM_NOTICE("HASH\n");
 		p_msg->hash_index=hash( p_msg->callid->body , get_cseq(p_msg)->number);
 		p_msg->msg_flags|=FL_HASH_INDEX;
 	}
@@ -502,8 +490,6 @@ int t_lookup_request( struct sip_msg* p_msg , int leave_new_locked,
 		return 0;
 	}
 	branch=p_msg->via1->branch;
-	LM_NOTICE("hash[%d] callid[%.*s]cseq[%.*s]\n",
-		p_msg->hash_index, p_msg->callid->body.len, p_msg->callid->body.s ,get_cseq(p_msg)->number.len, get_cseq(p_msg)->number.s);
 	if (branch && branch->value.s && branch->value.len>MCOOKIE_LEN
 			&& memcmp(branch->value.s,MCOOKIE,MCOOKIE_LEN)==0) {
 		/* huhuhu! the cookie is there -- let's proceed fast */
@@ -513,10 +499,9 @@ int t_lookup_request( struct sip_msg* p_msg , int leave_new_locked,
 				 * would  match the previous INVITE trans.  */
 				isACK ? ~METHOD_INVITE: ~p_msg->REQ_METHOD,
 				cancel);
-		LM_NOTICE("MATCH[%d]\n", match_status);
 		switch(match_status) {
 			case 0:	goto notfound;	/* no match */
-			case 1:	goto found; 	/* match */
+			case 1:	 goto found; 	/* match */
 			case 2:	goto e2e_ack;	/* e2e proxy ACK */
 		}
 	}

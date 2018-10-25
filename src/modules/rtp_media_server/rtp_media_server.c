@@ -249,7 +249,6 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 		LM_INFO("only invite is supported for offer \n");
 		return -1;
 	}
-	LM_INFO("invite processing\n");
 
 	status = tmb.t_newtran(msg);
 	LM_INFO("invite new transaction[%d]\n", status);
@@ -260,18 +259,18 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 		LM_INFO("retransmission");
 		return 0;
 	}
-	LM_INFO("transaction created\n");
+
 	char buffer[128];
-	snprintf(buffer,128,"Contact: <sip:rtp_server@%s>\r\nContent-Type: application/sdp\r\n", server_address.s);
+	snprintf(buffer,128,"Contact: <sip:rms@%s>\r\nContent-Type: application/sdp\r\n", server_address.s);
 	contact_hdr.len = strlen(buffer);
 	contact_hdr.s = pkg_malloc(contact_hdr.len+1);
 	strcpy(contact_hdr.s, buffer);
 	sdp_info->local_ip = server_address.s;
 	rms_sdp_prepare_new_body(sdp_info, si->caller_media.pt->type);
 	reason = method_ok;
-	// TODO add real totag
-	si->local_tag.s = "faketotag";
-	si->local_tag.len = strlen("faketotag");
+	str to_tag;
+	tmb.t_get_reply_totag(msg, &to_tag);
+	rms_str_dup(&si->local_tag, &to_tag, 1);
 	LM_INFO("local_uri[%s]local_tag[%s]\n", si->local_uri.s, si->local_tag.s);
 
 	if(!tmb.t_reply_with_body(tmb.t_gett(),200,&reason,&sdp_info->new_body,&contact_hdr,&si->local_tag)) {
@@ -294,7 +293,6 @@ static rms_session_info_t * rms_session_search(char *callid, int len) {
 	return NULL;
 }
 
-
 int rms_hangup_call(str *callid) {
 	uac_req_t uac_r;
 	int result;
@@ -304,6 +302,7 @@ int rms_hangup_call(str *callid) {
 		LM_INFO("rms_hangup_call[%s] not found !\n", callid->s);
 		return 0;
 	}
+	si->action = RMS_STOP;
 	LM_INFO("rms_hangup_call[%s]remote_uri[%s]local_uri[%s]\n", callid->s, si->remote_uri.s, si->local_uri.s);
 	LM_INFO("[contact] [%.*s]\n", si->contact_uri.len, si->contact_uri.s);
 	dlg_t* dialog = NULL;
@@ -316,7 +315,7 @@ int rms_hangup_call(str *callid) {
 	uac_r.ssock = &server_socket;
 	set_uac_req(&uac_r, &method_bye, &headers, &body, dialog, TMCB_LOCAL_COMPLETED, NULL, NULL);
 	result = tmb.t_request_within(&uac_r);
-	if(result < 0) {
+	if (result < 0) {
 		LM_ERR("error in tmb.t_request\n");
 		return -1;
 	} else {
@@ -326,11 +325,11 @@ int rms_hangup_call(str *callid) {
 }
 
 static int rms_check_msg(struct sip_msg* msg) {
-	if(!msg || !msg->callid || !msg->callid->body.s) {
+	if (!msg || !msg->callid || !msg->callid->body.s) {
 		LM_INFO("no callid ?\n");
 		return -1;
 	}
-	if(rms_session_search(msg->callid->body.s, msg->callid->body.len))
+	if (rms_session_search(msg->callid->body.s, msg->callid->body.len))
 		return -1;
 	return 1;
 }
@@ -369,7 +368,7 @@ int rms_session_free(rms_session_info_t *si) {
 }
 
 rms_session_info_t *rms_session_new(struct sip_msg* msg) {
-	if(!rms_check_msg(msg))
+	if (!rms_check_msg(msg))
 		return NULL;
 	rms_session_info_t *si = ortp_malloc(sizeof(rms_session_info_t));
 	if (!si) {
@@ -394,18 +393,17 @@ rms_session_info_t *rms_session_new(struct sip_msg* msg) {
 	contact_body_t *contact = hdr->parsed;
 	if (!rms_str_dup(&si->contact_uri, &contact->contacts->uri, 1))
 		return NULL;
-	//LM_ERR("[contact] [%.*s]\n", si->contact->contacts->uri.len, si->contact->contacts->uri.s);
-	LM_ERR("[contact offer] [%.*s]\n", si->contact_uri.len, si->contact_uri.s);
+	LM_NOTICE("[contact offer] [%.*s]\n", si->contact_uri.len, si->contact_uri.s);
 	si->cseq = atoi(msg->cseq->body.s);
 
 	rms_sdp_info_t *sdp_info = &si->sdp_info_offer;
 	sdp_info->local_ip = server_address.s;
-	if(!rms_get_sdp_info(sdp_info, msg)) {
+	if (!rms_get_sdp_info(sdp_info, msg)) {
 		rms_session_free(si);
 		return NULL;
 	}
 	si->caller_media.pt = rms_sdp_check_payload(sdp_info);
-	if(!si->caller_media.pt) {
+	if (!si->caller_media.pt) {
 		rms_session_free(si);
 		tmb.t_newtran(msg);
 		tmb.t_reply(msg,488,"incompatible media format");
@@ -428,7 +426,7 @@ int rms_sessions_dump(struct sip_msg* msg, char* param1, char* param2) {
 int rms_media_stop(struct sip_msg* msg, char* param1, char* param2) {
 	rms_session_info_t *si;
 	if (!msg || !msg->callid || !msg->callid->body.s) {
-		LM_INFO("no callid ?\n");
+		LM_ERR("no callid\n");
 		return -1;
 	}
 	si = rms_session_search(msg->callid->body.s, msg->callid->body.len);
@@ -446,7 +444,7 @@ int rms_media_stop(struct sip_msg* msg, char* param1, char* param2) {
 	}
 	rms_session_free(si);
 	tmb.t_newtran(msg);
-	if(!tmb.t_reply(msg,200,"OK")) {
+	if (!tmb.t_reply(msg,200,"OK")) {
 		return -1;
 	}
 	return 0;
