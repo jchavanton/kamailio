@@ -1,6 +1,5 @@
 # https://github.com/jchavanton/rtp_media_server.git
-apt-get install automake
-
+apt-get install automake autogen autoconf libtool pkg-config
 # bcunit
 git clone https://github.com/BelledonneCommunications/bcunit.git
 cd bcunit
@@ -38,7 +37,7 @@ git clone https://github.com/BelledonneCommunications/mediastreamer2.git
 cd mediastreamer2
 git checkout d935123fc497d19a24019c6e7ae4fe0c5f19d55a
 ./autogen.sh
-./configure --disable-video --enable-tools=no --disable-tests
+./configure --disable-sound --disable-video --enable-tools=no --disable-tests
 make
 make install
 cd ..
