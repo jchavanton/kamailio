@@ -244,23 +244,9 @@ str from = str_init("media_server@127.0.0.101");
 	(pit->name.len == sizeof((param))-1 && \
 		strncmp(pit->name.s, (param), sizeof((param))-1)==0)
 int parse_from(struct sip_msg* msg, rms_session_info_t *si) {
-	struct sip_uri uri;
-	parse_uri(msg->from->body.s, msg->from->body.len, &uri);
-	LM_NOTICE("<%.*s@%.*s>%.*s;\n", uri.user.len, uri.user.s, uri.host.len, uri.host.s, uri.params.len, uri.params.s );
-	param_t* params=NULL;
-	param_hooks_t phooks;
-	param_t* pit=NULL;
-	if (parse_params(&uri.params, CLASS_URI, &phooks, &pit)<0) {
-		ERR("Failed parsing params value\n");
-		return -1;
-	}
-	for (; pit;pit=pit->next) {
-		if PIT_MATCHES("tag") {
-			LM_NOTICE("tag[%.*s]\n", pit->body.len, pit->body.s);
-			rms_str_dup(&si->remote_tag, &pit->body, 1);
-		}
-	}
-	if (params) free_params(params);
+	struct to_body * from = get_from(msg);
+	LM_NOTICE("from[%.*s]tag[%.*s]\n", from->uri.len, from->uri.s, from->tag_value.len, from->tag_value.s);
+	rms_str_dup(&si->remote_tag, &from->tag_value, 1);
 	return 1;
 }
 
@@ -303,7 +289,8 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	LM_INFO("local_uri[%s]local_tag[%s]\n", si->local_uri.s, si->local_tag.s);
 
 	if(!tmb.t_reply_with_body(tmb.t_gett(),200,&reason,&sdp_info->new_body,&contact_hdr,&si->local_tag)) {
-		LM_INFO("t_reply error");
+		LM_ERR("t_reply error");
+		return 0;
 	}
 	LM_INFO("answered\n");
 	return 1;

@@ -199,6 +199,7 @@ int rms_playfile(call_leg_media_t *m, char* file_name) {
 	ms_connection_helper_start(&h);
 	ms_connection_helper_link(&h, m->ms_player, -1, 0);
 	if (m->ms_resampler) ms_connection_helper_link(&h, m->ms_resampler, 0, 0);
+	LM_NOTICE("encoder[%p]\n", m->ms_encoder );
 	ms_connection_helper_link(&h, m->ms_encoder, 0, 0);
 	ms_connection_helper_link(&h, m->ms_rtpsend, 0, -1);
 	//ms_ticker_attach(m->ms_ticker, m->ms_player);
