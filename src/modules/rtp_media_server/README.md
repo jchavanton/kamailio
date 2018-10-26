@@ -17,7 +17,6 @@ You can find the file in `config_example/kamailio.cfg`
 
 ```
 loadmodule "rtp_media_server"
-modparam("rtp_media_server", "server_address", "127.0.0.102")
 modparam("rtp_media_server", "log_file_name", "/tmp/rms_transfer.log")
 
 route {

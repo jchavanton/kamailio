@@ -2,7 +2,6 @@
 #include "../../core/data_lump.h"
 #include "../../core/parser/parse_content.h"
 
-extern str server_address;
 // https://tools.ietf.org/html/rfc4566
 // (protocol version)
 const char *sdp_v = "v=0\r\n";
@@ -79,7 +78,6 @@ void rms_sdp_prepare_new_body(rms_sdp_info_t * sdp_info, int payload_type_number
 
 	str *body = &sdp_info->new_body;
 	body->len=strlen(sdp_v)+strlen(sdp_s)+strlen(sdp_t);
-	sdp_info->local_ip = server_address.s;
 
 	// (originator and session identifier)
 	char sdp_o[128];
@@ -140,10 +138,10 @@ PayloadType* rms_sdp_check_payload(rms_sdp_info_t *sdp) {
 			pt->mime_type=rms_shm_strdup("pcmu"); /* ia=rtpmap:0 PCMU/8000*/
 		} else if (pt->type == 8) {
 			pt->mime_type=rms_shm_strdup("pcma");
-		} else if (pt->type == 9) {
-			pt->mime_type=rms_shm_strdup("g722");
-		} else if (pt->type == 18) {
-			pt->mime_type=rms_shm_strdup("g729");
+//		} else if (pt->type == 9) {
+//			pt->mime_type=rms_shm_strdup("g722");
+//		} else if (pt->type == 18) {
+//			pt->mime_type=rms_shm_strdup("g729");
 		}
 		if(pt->mime_type)
 			break;

@@ -28,7 +28,6 @@ static void mod_destroy(void);
 static int child_init(int);
 
 static rms_session_info_t *rms_session_list;
-str server_address = {0, 0};
 str playback_fn = {0, 0};
 str log_fn = {0, 0};
 
@@ -47,7 +46,6 @@ static cmd_export_t cmds[] = {
 };
 
 static param_export_t mod_params[]={
-	{"server_address", PARAM_STR, &server_address},
 	{"log_file_name", PARAM_STR, &log_fn},
 	{0,0,0}
 };
@@ -276,11 +274,11 @@ static int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 	}
 
 	char buffer[128];
-	snprintf(buffer,128,"Contact: <sip:rms@%s>\r\nContent-Type: application/sdp\r\n", server_address.s);
+	snprintf(buffer,128,"Contact: <sip:rms@%s:%d>\r\nContent-Type: application/sdp\r\n", si->local_ip.s, msg->rcv.dst_port);
 	contact_hdr.len = strlen(buffer);
 	contact_hdr.s = pkg_malloc(contact_hdr.len+1);
 	strcpy(contact_hdr.s, buffer);
-	sdp_info->local_ip = server_address.s;
+	sdp_info->local_ip = si->local_ip.s;
 	rms_sdp_prepare_new_body(sdp_info, si->caller_media.pt->type);
 	reason = method_ok;
 	str to_tag;
@@ -373,6 +371,10 @@ int rms_session_free(rms_session_info_t *si) {
 		ortp_free(si->contact_uri.s);
 		si->contact_uri.s = NULL;
 	}
+	if (si->local_ip.s) {
+		ortp_free(si->local_ip.s);
+		si->local_ip.s = NULL;
+	}
 	if (si->remote_uri.s) {
 		ortp_free(si->remote_uri.s);
 		si->remote_uri.s = NULL;
@@ -387,49 +389,53 @@ int rms_session_free(rms_session_info_t *si) {
 }
 
 rms_session_info_t *rms_session_new(struct sip_msg* msg) {
+	struct hdr_field* hdr = NULL;
+
 	if (!rms_check_msg(msg))
 		return NULL;
 	rms_session_info_t *si = ortp_malloc(sizeof(rms_session_info_t));
 	if (!si) {
 		LM_ERR("can not allocate session info !\n");
-		return NULL;
+		goto error;
 	}
 	memset(si,0,sizeof(rms_session_info_t));
 
 	if (!rms_str_dup(&si->callid, &msg->callid->body,1)) {
 		LM_ERR("can not get callid .\n");
-		return NULL;
+		goto error;
 	}
 	if (!rms_str_dup(&si->remote_uri, &msg->from->body,1))
-		return NULL;
+		goto error;
 	if (!rms_str_dup(&si->local_uri, &msg->to->body,1))
-		return NULL;
-
-	struct hdr_field* hdr = msg->contact;
-	if (parse_contact(hdr) < 0) // free !
-		return NULL;
-	//si->contact = hdr->parsed;
+		goto error;
+	str ip;
+	ip.s = ip_addr2a(&msg->rcv.dst_ip);
+	ip.len = strlen(ip.s);
+	if (!rms_str_dup(&si->local_ip, &ip, 1))
+		goto error;
+	hdr = msg->contact;
+	if (parse_contact(hdr) < 0)
+		goto error;
 	contact_body_t *contact = hdr->parsed;
 	if (!rms_str_dup(&si->contact_uri, &contact->contacts->uri, 1))
-		return NULL;
+		goto error;
 	LM_NOTICE("[contact offer] [%.*s]\n", si->contact_uri.len, si->contact_uri.s);
 	si->cseq = atoi(msg->cseq->body.s);
 
 	rms_sdp_info_t *sdp_info = &si->sdp_info_offer;
-	sdp_info->local_ip = server_address.s;
-	if (!rms_get_sdp_info(sdp_info, msg)) {
-		rms_session_free(si);
-		return NULL;
-	}
+	if (!rms_get_sdp_info(sdp_info, msg)) 
+		goto error;
 	si->caller_media.pt = rms_sdp_check_payload(sdp_info);
 	if (!si->caller_media.pt) {
-		rms_session_free(si);
 		tmb.t_newtran(msg);
 		tmb.t_reply(msg,488,"incompatible media format");
-		return NULL;
+		goto error;
 	}
 	clist_append(rms_session_list,si,next,prev);
 	return si;
+error:
+	rms_session_free(si);
+	return NULL;
 }
 
 int rms_sessions_dump(struct sip_msg* msg, char* param1, char* param2) {
@@ -482,9 +488,7 @@ static int rms_get_udp_port(void) {
 int rms_create_call_leg(struct sip_msg* msg, rms_session_info_t *si, call_leg_media_t *m, rms_sdp_info_t* sdp_info)  {
 	m->local_port = rms_get_udp_port();
 	sdp_info->udp_local_port = m->local_port;
-
-	LM_INFO("server IP[%s][%d]\n", server_address.s, server_address.len);
-	m->local_ip = server_address.s;
+	m->local_ip = si->local_ip.s;
 	m->remote_port = atoi(sdp_info->remote_port);
 	m->remote_ip = sdp_info->remote_ip;
 	m->callid = &si->callid;
@@ -493,8 +497,7 @@ int rms_create_call_leg(struct sip_msg* msg, rms_session_info_t *si, call_leg_me
 			sdp_info->remote_ip, sdp_info->remote_port,
 			m->local_ip, m->local_port,
 			si->caller_media.pt->mime_type);
-	create_call_leg_media(m, &si->callid);
-	return 1;
+	return create_call_leg_media(m, &si->callid);
 }
 
 int rms_sdp_offer(struct sip_msg* msg, char* param1, char* param2) {
@@ -502,8 +505,10 @@ int rms_sdp_offer(struct sip_msg* msg, char* param1, char* param2) {
 	rms_sdp_info_t *sdp_info = &si->sdp_info_offer;
 	if (!si)
 		return -1;
-	if (!rms_create_call_leg(msg, si, &si->caller_media, sdp_info))
+	if (!rms_create_call_leg(msg, si, &si->caller_media, sdp_info)) {
+		rms_session_free(si);
 		return -1;
+	}
 	rms_sdp_prepare_new_body(sdp_info, si->caller_media.pt->type);
 	rms_sdp_set_body(msg, &sdp_info->new_body);
 	if (!rms_relay_call(msg)) {
@@ -531,8 +536,10 @@ int rms_sdp_answer(struct sip_msg* msg, char* param1, char* param2) {
 		return -1;
 	}
 	si->callee_media.pt = rms_sdp_check_payload(sdp_info);
-	if (!rms_create_call_leg(msg, si, &si->callee_media, sdp_info))
+	if (!rms_create_call_leg(msg, si, &si->callee_media, sdp_info)) {
+		rms_session_free(si);
 		return -1;
+	}
 	rms_sdp_prepare_new_body(sdp_info, si->callee_media.pt->type);
 	rms_sdp_set_body(msg, &sdp_info->new_body);
 	rms_bridge(&si->caller_media, &si->callee_media);

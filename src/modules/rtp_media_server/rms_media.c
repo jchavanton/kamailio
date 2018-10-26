@@ -58,8 +58,8 @@ MSFilterDesc * rms_ms_filter_descs[]={
 	&ms_file_player_desc,
 	&ms_file_rec_desc,
 	&ms_resample_desc,
-	&ms_opus_dec_desc,
-	&ms_opus_enc_desc,
+//       &ms_opus_dec_desc,
+//       &ms_opus_enc_desc,
 	NULL
 };
 
@@ -116,7 +116,12 @@ int create_call_leg_media(call_leg_media_t *m, str *callid){
 	m->ms_rtprecv = ms_factory_create_filter(m->ms_factory, MS_RTP_RECV_ID);
 	m->ms_rtpsend = ms_factory_create_filter(m->ms_factory, MS_RTP_SEND_ID);
 	// m->ms_resampler = ms_factory_create_filter(m->ms_factory, MS_RESAMPLE_ID);
+	LM_NOTICE("codec[%s]\n", m->pt->mime_type);
 	m->ms_encoder = ms_factory_create_encoder(m->ms_factory, m->pt->mime_type);
+	if (!m->ms_encoder) {
+		LM_ERR("creating encoder failed.\n");
+		return 0;
+	}
 	m->ms_decoder = ms_factory_create_decoder(m->ms_factory, m->pt->mime_type);
 
 	/* set filter params */
