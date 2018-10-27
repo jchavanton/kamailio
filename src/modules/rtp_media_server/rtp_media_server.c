@@ -113,6 +113,24 @@ void rms_signal_handler(int signum) {
 	LM_INFO("signal received [%d]\n", signum);
 }
 
+// this is to interact/control the session and media streams that are runing is separate threads
+void rms_session_manage_loop() {
+	LM_INFO("\n");
+	while(1) {
+		lock(&session_list_mutex);
+		rms_session_info_t *si;
+		clist_foreach(rms_session_list, si, next){
+			if (si->action == RMS_STOP) {
+				LM_NOTICE("session stop [%s]\n", si->callid);
+			}
+		}
+		unlock(&session_list_mutex);
+		LM_DBG(":wait[%d]\n", (int)time(NULL));
+		usleep(20000);
+	}
+}
+
+
 /**
  * The rank will be o for the main process calling this function,
  * or 1 through n for each listener process. The rank can have a negative
@@ -129,6 +147,16 @@ void rms_signal_handler(int signum) {
  */
 static int child_init(int rank) {
 
+	if (rank==PROC_MAIN) {
+		int pid;
+		pid=fork_process(PROC_XWORKER, "RTP_media_server", 1);
+		if (pid<0)
+			return -1; /* error */
+		if(pid==0){
+			rms_session_manage_loop();
+			return 0;
+		}
+	}
 	// signal(SIGINT,rms_signal_handler);
 	int rtn = 0;
 	return(rtn);
