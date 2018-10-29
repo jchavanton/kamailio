@@ -6,10 +6,10 @@
 #include <mediastreamer2/mediastream.h>
 
 typedef struct rms_sdp_info {
-	char * remote_ip;
-	char * local_ip;
-	char * payloads;
-	char * remote_port;
+	str remote_ip;
+	str local_ip;
+	str payloads;
+	int remote_port;
 	int ipv6;
 	str new_body;
 	str recv_body;

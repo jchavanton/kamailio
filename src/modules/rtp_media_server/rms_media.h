@@ -34,8 +34,9 @@
 //#include <mediastreamer2/mediastream.h>
 #include <ortp/ortp.h>
 #include <ortp/port.h>
-
 #define MS_UNUSED(x) ((void)(x))
+
+struct rms_session_info;
 
 typedef struct call_leg_media {
 	MSFactory *ms_factory;
@@ -53,14 +54,14 @@ typedef struct call_leg_media {
 	MSFilter *ms_tonedet;
 	MSFilter *ms_voidsource;
 	MSFilter *ms_voidsink;
-	char* local_ip;
+	str local_ip;
 	int local_port;
-	char* remote_ip;
+	str remote_ip;
 	int remote_port;
-	str *callid;
+	struct rms_session_info *si;
 } call_leg_media_t;
 
-int create_call_leg_media(call_leg_media_t *m, str *callid);
+int create_call_leg_media(call_leg_media_t *m);
 
 int rms_media_init();
 void rms_media_destroy();

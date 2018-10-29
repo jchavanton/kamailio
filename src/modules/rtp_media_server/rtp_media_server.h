@@ -44,11 +44,13 @@
 /* protection against concurrent reply processing */
 ser_lock_t session_list_mutex;
 
-static int rms_media_stop(struct sip_msg *, char *, char *);
-static int rms_media_start(struct sip_msg *, str *);
-static int rms_sdp_offer(struct sip_msg *, char *, char *);
-static int rms_sdp_answer(struct sip_msg *, char *, char *);
-static int rms_sessions_dump(struct sip_msg *, char *, char *);
+
+
+int rms_media_stop(struct sip_msg *, char *, char *);
+int rms_media_start(struct sip_msg *, str *);
+int rms_sdp_offer(struct sip_msg *, char *, char *);
+int rms_sdp_answer(struct sip_msg *, char *, char *);
+int rms_sessions_dump(struct sip_msg *, char *, char *);
 
 typedef struct rms {
 	int udp_start_port;
@@ -67,6 +69,8 @@ typedef struct ms_res {
 typedef enum rms_action {
 	RMS_NONE,
 	RMS_STOP,
+	RMS_HANGUP,
+	RMS_PLAY,
 } rms_action_t;
 
 typedef struct rms_session_info {
@@ -86,6 +90,9 @@ typedef struct rms_session_info {
 	call_leg_media_t caller_media;
 	call_leg_media_t callee_media;
 	rms_action_t action;
+	str action_param;
 } rms_session_info_t;
 
+int rms_session_free(rms_session_info_t *si);
+int rms_hangup_call(rms_session_info_t *si);
 #endif

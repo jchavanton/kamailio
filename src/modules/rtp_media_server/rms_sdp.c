@@ -43,31 +43,21 @@ static char* rms_sdp_get_rtpmap(str body, int type_number) {
 }
 
 void rms_sdp_info_init(rms_sdp_info_t * sdp_info) {
-	sdp_info->remote_ip=NULL;
-	sdp_info->remote_port=NULL;
-	sdp_info->payloads=NULL;
-	sdp_info->ipv6=0;
-	sdp_info->new_body.s=NULL;
-	sdp_info->recv_body.s=NULL;
+	memset(sdp_info, 0, sizeof(rms_sdp_info_t));
 }
 
 void rms_sdp_info_free(rms_sdp_info_t * sdp_info) {
-	if(sdp_info->remote_ip) {
-		pkg_free(sdp_info->remote_ip);
-		sdp_info->remote_ip = NULL;
+	if (sdp_info->remote_ip.s) {
+		ortp_free(sdp_info->remote_ip.s);
+		sdp_info->remote_ip.s = NULL;
 	}
-	if(sdp_info->remote_port) {
-		pkg_free(sdp_info->remote_port);
-		sdp_info->remote_port = NULL;
+	if (sdp_info->payloads.s) {
+		ortp_free(sdp_info->payloads.s);
+		sdp_info->payloads.s = NULL;
 	}
-	if(sdp_info->payloads) {
-		pkg_free(sdp_info->payloads);
-		sdp_info->payloads = NULL;
-	}
-	if(sdp_info->new_body.s) {
-		pkg_free(sdp_info->new_body.s);
+	if (sdp_info->new_body.s) {
+		ortp_free(sdp_info->new_body.s);
 		sdp_info->new_body.s = NULL;
-		sdp_info->new_body.len = 0;
 	}
 }
 
@@ -81,12 +71,12 @@ void rms_sdp_prepare_new_body(rms_sdp_info_t * sdp_info, int payload_type_number
 
 	// (originator and session identifier)
 	char sdp_o[128];
-	snprintf(sdp_o,128,"o=- 1028316687 1 IN IP4 %s\r\n", sdp_info->local_ip);
+	snprintf(sdp_o,128,"o=- 1028316687 1 IN IP4 %s\r\n", sdp_info->local_ip.s);
 	body->len+=strlen(sdp_o);
 
 	// (connection information -- not required if included in all media)
 	char sdp_c[128];
-	snprintf(sdp_c,128,"c=IN IP4 %s\r\n", sdp_info->local_ip);
+	snprintf(sdp_c,128,"c=IN IP4 %s\r\n", sdp_info->local_ip.s);
 	body->len+=strlen(sdp_c);
 
 	char sdp_m[128];
@@ -106,9 +96,9 @@ void rms_sdp_prepare_new_body(rms_sdp_info_t * sdp_info, int payload_type_number
 
 PayloadType* rms_sdp_check_payload(rms_sdp_info_t *sdp) {
 	// https://tools.ietf.org/html/rfc3551
-	LM_INFO("payloads[%s]\n", sdp->payloads); //0 8
+	LM_INFO("payloads[%s]\n", sdp->payloads.s); //0 8
 	PayloadType *pt = payload_type_new();
-	char * payloads = sdp->payloads;
+	char * payloads = sdp->payloads.s;
 	char * payload_type_number=strtok(payloads," ");
 	if (!payload_type_number) {
 		payload_type_destroy(pt);
