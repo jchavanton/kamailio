@@ -70,6 +70,7 @@ MSFactory *rms_get_factory();
 
 int rms_stop_media(call_leg_media_t *m);
 int rms_playfile(call_leg_media_t *m, char* file_name);
+int rms_start_media(call_leg_media_t *m, char* file_name);
 int rms_bridge(call_leg_media_t *m1, call_leg_media_t *m2);
 int rms_stop_bridge(call_leg_media_t *m1, call_leg_media_t *m2);
 

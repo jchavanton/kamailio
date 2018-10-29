@@ -33,10 +33,11 @@ str log_fn = {0, 0};
 static rms_t rms;
 
 static rms_session_info_t * rms_session_search(char *callid, int len);
-static int fixup_rms_media_start(void** param, int param_no);
+static int fixup_rms_action_play(void** param, int param_no);
 
 static cmd_export_t cmds[] = {
-	{"rms_media_start", (cmd_function)rms_media_start,1,fixup_rms_media_start,0,ANY_ROUTE },
+	{"rms_media_start", (cmd_function)rms_media_start,0,0,0,ANY_ROUTE },
+	{"rms_play", (cmd_function)rms_action_play,1,fixup_rms_action_play,0,ANY_ROUTE },
 	{"rms_sdp_offer", (cmd_function)rms_sdp_offer,0,0,0,ANY_ROUTE },
 	{"rms_sdp_answer", (cmd_function)rms_sdp_answer,0,0,0,ANY_ROUTE },
 	{"rms_media_stop", (cmd_function)rms_media_stop,0,0,0,ANY_ROUTE },
@@ -62,11 +63,11 @@ struct module_exports exports = {
 	mod_destroy,
 };
 
-static int fixup_rms_media_start(void** param, int param_no) {
-		if (param_no == 1)
-			return fixup_spve_null(param, 1);
-		LM_ERR("invalid parameter count [%d]\n", param_no);
-		return -1;
+static int fixup_rms_action_play(void** param, int param_no) {
+	if (param_no == 1)
+		return fixup_spve_null(param, 1);
+	LM_ERR("invalid parameter count [%d]\n", param_no);
+	return -1;
 }
 
 /**
@@ -130,9 +131,13 @@ void rms_session_manage_loop() {
 				rms_session_free(si);
 				si = tmp;
 			} else if (si->action == RMS_PLAY) {
-				create_call_leg_media(&si->caller_media);
 				LM_NOTICE("session action play [%s]\n", si->callid.s);
 				rms_playfile(&si->caller_media, si->action_param.s);
+				si->action = RMS_NONE;
+			} else if (si->action == RMS_START) {
+				create_call_leg_media(&si->caller_media);
+				LM_NOTICE("session action start [%s]\n", si->callid.s);
+				rms_start_media(&si->caller_media, si->action_param.s);
 				si->action = RMS_NONE;
 			}
 		}
@@ -571,8 +576,18 @@ int rms_sdp_answer(struct sip_msg* msg, char* param1, char* param2) {
 	return 1;
 }
 
+int rms_action_play(struct sip_msg* msg, str *playback_fn) {
+	rms_session_info_t *si = rms_session_search(msg->callid->body.s, msg->callid->body.len);
+	if (!si) return -1;
+	LM_NOTICE("RTP session [%s:%d]<>[%s:%d]\n", si->caller_media.local_ip.s, si->caller_media.local_port,
+						si->caller_media.remote_ip.s, si->caller_media.remote_port);
+	si->action = RMS_PLAY;
+	si->action_param.len = playback_fn->len;
+	si->action_param.s = playback_fn->s;
+	return 0;
+}
 
-int rms_media_start(struct sip_msg* msg, str *playback_fn) {
+int rms_media_start(struct sip_msg* msg) {
 	if (rms_session_search(msg->callid->body.s, msg->callid->body.len))
 		return -1;
 	rms_session_info_t *si = rms_session_new(msg);
@@ -586,8 +601,6 @@ int rms_media_start(struct sip_msg* msg, str *playback_fn) {
 	}
 	LM_NOTICE("RTP session [%s:%d]<>[%s:%d]\n", si->caller_media.local_ip.s, si->caller_media.local_port,
 							si->caller_media.remote_ip.s, si->caller_media.remote_port);
-	si->action = RMS_PLAY;
-	si->action_param.len = playback_fn->len;
-	si->action_param.s = playback_fn->s;
-	return 0;
+	si->action = RMS_START;	
+	return 1;
 }

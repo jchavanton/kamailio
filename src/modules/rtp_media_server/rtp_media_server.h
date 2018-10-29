@@ -37,17 +37,12 @@
 #include "rms_sdp.h"
 #include "rms_media.h"
 
-// documentation
-// https://www.kamailio.org/dokuwiki/doku.php/development:write-module
-// http://www.kamailio.org/docs/kamailio-devel-guide/#c16makefile
 
-/* protection against concurrent reply processing */
 ser_lock_t session_list_mutex;
 
-
-
 int rms_media_stop(struct sip_msg *, char *, char *);
-int rms_media_start(struct sip_msg *, str *);
+int rms_media_start(struct sip_msg *);
+int rms_action_play(struct sip_msg *, str *);
 int rms_sdp_offer(struct sip_msg *, char *, char *);
 int rms_sdp_answer(struct sip_msg *, char *, char *);
 int rms_sessions_dump(struct sip_msg *, char *, char *);
@@ -68,6 +63,7 @@ typedef struct ms_res {
 
 typedef enum rms_action {
 	RMS_NONE,
+	RMS_START,
 	RMS_STOP,
 	RMS_HANGUP,
 	RMS_PLAY,

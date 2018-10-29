@@ -186,16 +186,22 @@ int rms_stop_bridge(call_leg_media_t *m1, call_leg_media_t *m2) {
 	return 1;
 }
 
-int rms_playfile(call_leg_media_t *m, char* file_name) {
+int rms_playfile (call_leg_media_t *m, char* file_name) {
+	if (!m->ms_player) return 0;
+	ms_filter_add_notify_callback(m->ms_player, rms_player_eof, m->si, TRUE);
+	ms_filter_call_method(m->ms_player, MS_FILE_PLAYER_OPEN, (void *) file_name);
+	return 1;
+}
+
+int rms_start_media(call_leg_media_t *m, char* file_name) {
 	MSConnectionHelper h;
 	m->ms_ticker = rms_create_ticker(NULL);
 	m->ms_player = ms_factory_create_filter(m->ms_factory, MS_FILE_PLAYER_ID);
 	//m->ms_recorder = ms_factory_create_filter(m->ms_factory, MS_FILE_PLAYER_ID);
 	m->ms_voidsink = ms_factory_create_filter(m->ms_factory, MS_VOID_SINK_ID);
-	ms_filter_add_notify_callback(m->ms_player, (MSFilterNotifyFunc) rms_player_eof, m, TRUE);
 	LM_NOTICE("m[%p]call-id[%p]\n", m, m->si->callid.s);
-	ms_filter_add_notify_callback(m->ms_player, rms_player_eof, m->si, TRUE);
-	ms_filter_call_method(m->ms_player, MS_FILE_PLAYER_OPEN, (void *) file_name);
+	//ms_filter_add_notify_callback(m->ms_player, rms_player_eof, m->si, TRUE);
+	//ms_filter_call_method(m->ms_player, MS_FILE_PLAYER_OPEN, (void *) file_name);
 	int channels = 1;
 	ms_filter_call_method(m->ms_player, MS_FILTER_SET_OUTPUT_NCHANNELS, &channels);
 	ms_filter_call_method_noarg(m->ms_player, MS_FILE_PLAYER_START);
