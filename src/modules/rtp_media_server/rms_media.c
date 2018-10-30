@@ -190,6 +190,7 @@ int rms_playfile (call_leg_media_t *m, char* file_name) {
 	if (!m->ms_player) return 0;
 	ms_filter_add_notify_callback(m->ms_player, rms_player_eof, m->si, TRUE);
 	ms_filter_call_method(m->ms_player, MS_FILE_PLAYER_OPEN, (void *) file_name);
+	ms_filter_call_method(m->ms_player, MS_FILE_PLAYER_START, NULL);
 	return 1;
 }
 

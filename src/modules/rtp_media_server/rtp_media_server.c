@@ -19,6 +19,7 @@
  */
 
 #include "rtp_media_server.h"
+#include "../../core/fmsg.h"
 
 MODULE_VERSION
 
@@ -62,6 +63,48 @@ struct module_exports exports = {
 	child_init,
 	mod_destroy,
 };
+
+void run_action_route(rms_session_info_t *si, char *route) {
+	int rt, backup_rt;
+	struct run_act_ctx ctx;
+	sip_msg_t *fmsg;
+
+	if (route == NULL) {
+		LM_ERR("bad route\n");
+		return;
+	}
+	rt = -1;
+	rt = route_lookup(&event_rt, route);
+	if (rt < 0 || event_rt.rlist[rt] == NULL) {
+		LM_DBG("route does not exist");
+		return;
+	}
+	if (faked_msg_init() < 0) {
+		LM_ERR("faked_msg_init() failed\n");
+		return;
+	}
+	fmsg = faked_msg_next();
+	struct hdr_field callid;
+	callid.body.s = si->callid.s;
+	callid.body.len = si->callid.len;
+
+
+	fmsg->callid = &callid;
+	//fmsg->parsed_orig_ruri_ok = 0;
+	//fmsg->new_uri = *uri;
+
+	//sr_xval_t val;
+	//val.type = SR_XTYPE_DATA;
+	//val.v.data = data;
+
+	backup_rt = get_route_type();
+	set_route_type(EVENT_ROUTE);
+	init_run_actions_ctx(&ctx);
+	if(rt>=0) {
+		run_top_route(event_rt.rlist[rt], fmsg, 0);
+	}
+	set_route_type(backup_rt);
+}
 
 static int fixup_rms_action_play(void** param, int param_no) {
 	if (param_no == 1)
@@ -121,24 +164,25 @@ void rms_session_manage_loop() {
 		rms_session_info_t *si;
 		clist_foreach(rms_session_list, si, next){
 			if (si->action == RMS_HANGUP) {
-				LM_NOTICE("session action hangup [%s]\n", si->callid.s);
+				LM_NOTICE("session action RMS_HANGUP [%s]\n", si->callid.s);
 				rms_hangup_call(si);
 				si->action = RMS_STOP;
 			} else if (si->action == RMS_STOP) {
-				LM_NOTICE("session action stop [%s]\n", si->callid.s);
+				LM_NOTICE("session action RMS_STOP [%s]\n", si->callid.s);
 				rms_stop_media(&si->caller_media);
 				rms_session_info_t *tmp = si->prev;
 				rms_session_free(si);
 				si = tmp;
 			} else if (si->action == RMS_PLAY) {
-				LM_NOTICE("session action play [%s]\n", si->callid.s);
+				LM_NOTICE("session action RMS_PLAY [%s]\n", si->callid.s);
 				rms_playfile(&si->caller_media, si->action_param.s);
 				si->action = RMS_NONE;
 			} else if (si->action == RMS_START) {
 				create_call_leg_media(&si->caller_media);
-				LM_NOTICE("session action start [%s]\n", si->callid.s);
+				LM_NOTICE("session action RMS_START [%s]\n", si->callid.s);
 				rms_start_media(&si->caller_media, si->action_param.s);
 				si->action = RMS_NONE;
+				run_action_route(si, "rms:start");
 			}
 		}
 		unlock(&session_list_mutex);
@@ -337,7 +381,7 @@ int rms_answer_call(struct sip_msg* msg, rms_session_info_t *si) {
 }
 
 rms_session_info_t * rms_session_search(char *callid, int len) {
-	lock(&session_list_mutex);
+	//lock(&session_list_mutex);
 	rms_session_info_t *si;
 	clist_foreach(rms_session_list, si, next){
 		if (strncmp(callid, si->callid.s, len) == 0) {
@@ -345,7 +389,7 @@ rms_session_info_t * rms_session_search(char *callid, int len) {
 			return si;
 		}
 	}
-	unlock(&session_list_mutex);
+	//unlock(&session_list_mutex);
 	return NULL;
 }
 
@@ -493,7 +537,11 @@ int rms_media_stop(struct sip_msg* msg, char* param1, char* param2) {
 	si = rms_session_search(msg->callid->body.s, msg->callid->body.len);
 	if (!si){
 		LM_INFO("session not found ci[%.*s]\n",  msg->callid->body.len, msg->callid->body.s);
-		return 1;
+		tmb.t_newtran(msg);
+		if (!tmb.t_reply(msg,481,"Call/Transaction Does Not Exist")) {
+			return -1;
+		}
+		return 0;
 	}
 	si->action = RMS_STOP;
 	tmb.t_newtran(msg);
