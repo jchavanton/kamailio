@@ -153,7 +153,7 @@ int rms_bridge(call_leg_media_t *m1, call_leg_media_t *m2) {
 static void rms_player_eof(void *user_data, MSFilter *f, unsigned int event, void *event_data) {
 	if (event == MS_FILE_PLAYER_EOF) {
 		rms_session_info_t *si = (rms_session_info_t *) user_data;
-		si->action = RMS_HANGUP;
+		si->action = RMS_DONE;
 	}
 	MS_UNUSED(f), MS_UNUSED(event_data);
 }

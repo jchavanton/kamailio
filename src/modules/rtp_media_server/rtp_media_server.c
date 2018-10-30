@@ -38,10 +38,11 @@ static int fixup_rms_action_play(void** param, int param_no);
 
 static cmd_export_t cmds[] = {
 	{"rms_media_start", (cmd_function)rms_media_start,0,0,0,ANY_ROUTE },
-	{"rms_play", (cmd_function)rms_action_play,1,fixup_rms_action_play,0,ANY_ROUTE },
+	{"rms_play", (cmd_function)rms_action_play,2,fixup_rms_action_play,0,ANY_ROUTE },
 	{"rms_sdp_offer", (cmd_function)rms_sdp_offer,0,0,0,ANY_ROUTE },
 	{"rms_sdp_answer", (cmd_function)rms_sdp_answer,0,0,0,ANY_ROUTE },
 	{"rms_media_stop", (cmd_function)rms_media_stop,0,0,0,ANY_ROUTE },
+	{"rms_hangup", (cmd_function)rms_hangup,0,0,0,ANY_ROUTE },
 	{"rms_sessions_dump", (cmd_function)rms_sessions_dump,0,0,0,ANY_ROUTE },
 	{0, 0, 0, 0, 0, 0}
 };
@@ -108,6 +109,8 @@ void run_action_route(rms_session_info_t *si, char *route) {
 
 static int fixup_rms_action_play(void** param, int param_no) {
 	if (param_no == 1)
+		return fixup_spve_null(param, 1);
+	if (param_no == 2)
 		return fixup_spve_null(param, 1);
 	LM_ERR("invalid parameter count [%d]\n", param_no);
 	return -1;
@@ -177,6 +180,13 @@ void rms_session_manage_loop() {
 				LM_NOTICE("session action RMS_PLAY [%s]\n", si->callid.s);
 				rms_playfile(&si->caller_media, si->action_param.s);
 				si->action = RMS_NONE;
+			} else if (si->action == RMS_DONE) {
+				LM_NOTICE("session action RMS_DONE [%s][%s]\n", si->callid.s, si->action_route.s);
+				if (si->action_route.s) {
+					run_action_route(si, si->action_route.s);
+				} else {
+					si->action = RMS_HANGUP;
+				}
 			} else if (si->action == RMS_START) {
 				create_call_leg_media(&si->caller_media);
 				LM_NOTICE("session action RMS_START [%s]\n", si->callid.s);
@@ -624,7 +634,7 @@ int rms_sdp_answer(struct sip_msg* msg, char* param1, char* param2) {
 	return 1;
 }
 
-int rms_action_play(struct sip_msg* msg, str *playback_fn) {
+int rms_action_play(struct sip_msg* msg, str *playback_fn, str *route) {
 	rms_session_info_t *si = rms_session_search(msg->callid->body.s, msg->callid->body.len);
 	if (!si) return -1;
 	LM_NOTICE("RTP session [%s:%d]<>[%s:%d]\n", si->caller_media.local_ip.s, si->caller_media.local_port,
@@ -632,6 +642,16 @@ int rms_action_play(struct sip_msg* msg, str *playback_fn) {
 	si->action = RMS_PLAY;
 	si->action_param.len = playback_fn->len;
 	si->action_param.s = playback_fn->s;
+	si->action_route.len = route->len;
+	si->action_route.s = route->s;
+	// freee ?! dup
+	return 0;
+}
+
+int rms_hangup(struct sip_msg* msg) {
+	rms_session_info_t *si = rms_session_search(msg->callid->body.s, msg->callid->body.len);
+	if (!si) return -1;
+	si->action = RMS_HANGUP;
 	return 0;
 }
 
