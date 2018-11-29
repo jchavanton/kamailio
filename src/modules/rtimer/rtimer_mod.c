@@ -71,6 +71,7 @@ stm_timer_t *_stm_list = NULL;
 /** module functions */
 static int mod_init(void);
 static int child_init(int);
+static void mod_destroy(void);
 
 int stm_t_param(modparam_t type, void* val);
 int stm_e_param(modparam_t type, void* val);
@@ -95,7 +96,7 @@ struct module_exports exports= {
 	0,
 	mod_init,    /* module initialization function */
 	child_init,  /* per-child init function */
-	0
+	mod_destroy,
 };
 
 
@@ -175,6 +176,39 @@ static int child_init(int rank)
 	}
 
 	return 0;
+}
+
+static void mod_destroy(void)
+{
+	stm_timer_t *it = _stm_list;
+	sip_msg_t *fmsg;
+	stm_route_t *rt;
+	sr_kemi_eng_t *keng = NULL;
+	str evname = str_init("rtimer");
+	if(it->rt==NULL)
+		return;
+	while(it)
+	{
+		for(rt=it->rt; rt; rt=rt->next)
+		{
+			fmsg = faked_msg_next();
+			if (exec_pre_script_cb(fmsg, REQUEST_CB_TYPE)==0 )
+				continue; /* drop the request */
+			set_route_type(REQUEST_ROUTE);
+			keng = sr_kemi_eng_get();
+			if(keng==NULL) {
+				run_top_route(main_rt.rlist[rt->route], fmsg, 0);
+			} else {
+				if(keng->froute(fmsg, EVENT_ROUTE, &rt->route_name, &evname)<0) {
+					LM_ERR("error running event route kemi callback [%.*s]\n",
+							rt->route_name.len, rt->route_name.s);
+				}
+			}
+			exec_post_script_cb(fmsg, REQUEST_CB_TYPE);
+			ksr_msg_env_reset();
+		}
+		it = it->next;
+	}
 }
 
 void stm_timer_exec(unsigned int ticks, void *param)
@@ -323,6 +357,9 @@ int stm_e_param(modparam_t type, void *val)
 			tmp.timer = pit->body;
 		} else if(pit->name.len==5
 				&& strncasecmp(pit->name.s, "route", 5)==0) {
+			s = pit->body;
+		} else if(pit->name.len==8
+				&& strncasecmp(pit->name.s, "shutdown", 8)==0) {
 			s = pit->body;
 		}
 	}
