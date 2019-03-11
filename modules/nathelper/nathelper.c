@@ -316,6 +316,7 @@ static usrloc_api_t ul;
 
 static int cblen = 0;
 static int natping_interval = 0;
+static int natping_tps = 0;
 struct socket_info* force_socket = 0;
 
 
@@ -413,6 +414,7 @@ static pv_export_t mod_pvs[] = {
 
 static param_export_t params[] = {
 	{"natping_interval",      INT_PARAM, &natping_interval      },
+	{"natping_tps",           INT_PARAM, &natping_tps      },
 	{"ping_nated_only",       INT_PARAM, &ping_nated_only       },
 	{"nortpproxy_str",        PARAM_STR, &nortpproxy_str      },
 	{"received_avp",          PARAM_STRING, &rcv_avp_param         },
@@ -2218,6 +2220,11 @@ nh_timer(unsigned int ticks, void *timer_idx)
 				LM_ERR("udp_send failed\n");
 			}
 		}
+
+		if (natping_tps > 0) {
+			sleep_us(1000/(natping_tps/natping_processes)*1000);
+		}
+
 	}
 	pkg_free(buf);
 done:
