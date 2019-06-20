@@ -648,7 +648,8 @@ int register_udomain(const char* _n, udomain_t** _d)
 		}
 
 		if(ul_version_table != 0
-				&& db_check_table_version(&ul_dbf, con, &s, UL_TABLE_VERSION) < 0) {
+				&& ((db_check_table_version(&ul_dbf, con, &s, UL_TABLE_VERSION2) < 0)
+				&& db_check_table_version(&ul_dbf, con, &s, UL_TABLE_VERSION) < 0)) {
 			LM_ERR("error during table version check.\n");
 			goto err;
 		}

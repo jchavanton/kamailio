@@ -40,6 +40,7 @@
 
 
 #define UL_TABLE_VERSION 9
+#define UL_TABLE_VERSION2 8
 
 extern str ruid_col;
 extern str user_col;
