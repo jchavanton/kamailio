@@ -55,7 +55,10 @@ static inline int db_do_submit_query(const db1_con_t* _h, const str *_query,
 		gettimeofday(&tvb, &tz);
 	}
 
+	gettimeofday(&tvb, &tz);
 	ret = submit_query(_h, _query);
+	gettimeofday(&tve, &tz);
+	tdiff = (tve.tv_sec - tvb.tv_sec) * 1000000 + (tve.tv_usec - tvb.tv_usec);
 
 	if(unlikely(cfg_get(core, core_cfg, latency_limit_db)>0)
 			&& is_printable(cfg_get(core, core_cfg, latency_log))) {
@@ -69,6 +72,7 @@ static inline int db_do_submit_query(const db1_con_t* _h, const str *_query,
 		}
 	}
 
+	LM_ERR("query execution too long [%u us] for [%.*s]\n", tdiff, _query->len<1000?_query->len:1000, _query->s);
 	return ret;
 }
 
@@ -197,6 +201,7 @@ int db_do_raw_query(const db1_con_t* _h, const str* _s, db1_res_t** _r,
 			return tmp;
 		}
 	}
+	LM_ERR("...\n");
 	return 0;
 }
 

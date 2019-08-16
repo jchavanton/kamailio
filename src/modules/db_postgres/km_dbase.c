@@ -1,4 +1,6 @@
 /*
+ * $Id$
+ *
  * Copyright (C) 2003 August.Net Services, LLC
  * Copyright (C) 2006 Norman Brandinger
  * Copyright (C) 2008 1&1 Internet AG
@@ -16,10 +18,46 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
+ * You should have received a copy of the GNU General Public License 
+ * along with this program; if not, write to the Free Software 
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  *
+ * History
+ * -------
+ * 2003-04-06 initial code written (Greg Fausak/Andy Fullford)
+ * 2006-07-28 within pg_get_result(): added check to immediatly return of no 
+ *            result set was returned added check to only execute 
+ *            convert_result() if PGRES_TUPLES_OK added safety check to avoid 
+ *            double pg_free_result() (norm)
+ * 2006-08-07 Rewrote pg_get_result().
+ *            Additional debugging lines have been placed through out the code.
+ *            Added Asynchronous Command Processing (PQsendQuery/PQgetResult) 
+ *            instead of PQexec. this was done in preparation of adding FETCH 
+ *            support.  Note that PQexec returns a result pointer while 
+ *            PQsendQuery does not.  The result set pointer is obtained from 
+ *            a call (or multiple calls) to PQgetResult.
+ *            Removed transaction processing calls (BEGIN/COMMIT/ROLLBACK) as 
+ *            they added uneeded overhead.  Klaus' testing showed in excess of 
+ *            1ms gain by removing each command.  In addition, Kamailio only 
+ *            issues single queries and is not, at this time transaction aware.
+ *            The transaction processing routines have been left in place 
+ *            should this support be needed in the future.
+ *            Updated logic in pg_query / pg_raw_query to accept a (0) result 
+ *            set (_r) parameter.  In this case, control is returned
+ *            immediately after submitting the query and no call to 
+ *            pg_get_results() is performed. This is a requirement for 
+ *            FETCH support. (norm)
+ * 2006-10-27 Added fetch support (norm)
+ *            Removed dependency on aug_* memory routines (norm)
+ *            Added connection pooling support (norm)
+ *            Standardized API routines to pg_* names (norm)
+ * 2006-11-01 Updated pg_insert(), pg_delete(), pg_update() and 
+ *            pg_get_result() to handle failed queries.  Detailed warnings 
+ *            along with the text of the failed query is now displayed in the 
+ *            log. Callers of these routines can now assume that a non-zero 
+ *            rc indicates the query failed and that remedial action may need 
+ *            to be taken. (norm)
+ * 2017-03-10 Add insert_update() but only supporting DO NOTHING see notes
  */
 
 /*! \file
@@ -29,7 +67,7 @@
  */
 
 /*! maximum number of columns */
-#define MAXCOLUMNS 512
+#define MAXCOLUMNS	512
 
 #include <string.h>
 #include <stdio.h>
@@ -41,7 +79,6 @@
 #include "../../lib/srdb1/db_query.h"
 #include "../../core/locking.h"
 #include "../../core/hashes.h"
-#include "../../core/clist.h"
 #include "km_dbase.h"
 #include "km_pg_con.h"
 #include "km_val.h"
@@ -56,18 +93,20 @@ static char *postgres_sql_buf = NULL;
 
 /*!
  * \brief init lock set used to implement SQL REPLACE via UPDATE/INSERT
- * \param sz power of two to compute the lock set size
+ * \param sz power of two to compute the lock set size 
  * \return 0 on success, -1 on error
  */
 int pg_init_lock_set(int sz)
 {
-	if(sz > 0 && sz <= 10) {
-		_pg_lock_size = 1 << sz;
+	if(sz>0 && sz<=10)
+	{
+		_pg_lock_size = 1<<sz;
 	} else {
-		_pg_lock_size = 1 << 4;
+		_pg_lock_size = 1<<4;
 	}
 	_pg_lock_set = lock_set_alloc(_pg_lock_size);
-	if(_pg_lock_set == NULL || lock_set_init(_pg_lock_set) == NULL) {
+	if(_pg_lock_set==NULL || lock_set_init(_pg_lock_set)==NULL)
+	{
 		LM_ERR("cannot initiate lock set\n");
 		return -1;
 	}
@@ -76,7 +115,8 @@ int pg_init_lock_set(int sz)
 
 void pg_destroy_lock_set(void)
 {
-	if(_pg_lock_set != NULL) {
+	if(_pg_lock_set!=NULL)
+	{
 		lock_set_destroy(_pg_lock_set);
 		lock_set_dealloc(_pg_lock_set);
 		_pg_lock_set = NULL;
@@ -86,43 +126,42 @@ void pg_destroy_lock_set(void)
 
 int pg_alloc_buffer(void)
 {
-	if(postgres_sql_buf != NULL) {
+	if (postgres_sql_buf != NULL) {
 		LM_DBG("postgres_sql_buf not NULL on init\n");
 		return 0;
 	}
 	LM_DBG("About to allocate postgres_sql_buf size = %d\n", sql_buffer_size);
-	postgres_sql_buf = pkg_malloc(sql_buffer_size);
-	if(postgres_sql_buf == NULL) {
+	postgres_sql_buf = (char*)malloc(sql_buffer_size);
+	if (postgres_sql_buf == NULL) {
 		LM_ERR("failed to allocate postgres_sql_buf\n");
 		return -1;
 	}
 	return 1;
 }
 
-static void db_postgres_free_query(const db1_con_t *_con);
+static void db_postgres_free_query(const db1_con_t* _con);
 
 
 /*!
- * \brief Initialize database for future queries, with pooling
+ * \brief Initialize database for future queries
  * \param _url URL of the database that should be opened
  * \return database connection on success, NULL on error
  * \note this function must be called prior to any database functions
  */
-db1_con_t *db_postgres_init(const str *_url)
+db1_con_t *db_postgres_init(const str* _url)
 {
-	return db_do_init(_url, (void *)db_postgres_new_connection);
+	return db_do_init(_url, (void*) db_postgres_new_connection);
 }
 
 /*!
- * \brief Initialize database for future queries, specify pooling
+ * \brief Initialize database for future queries - no pooling
  * \param _url URL of the database that should be opened
- * \param pooling whether or not to use a pooled connection
  * \return database connection on success, NULL on error
  * \note this function must be called prior to any database functions
  */
-db1_con_t *db_postgres_init2(const str *_url, db_pooling_t pooling)
+db1_con_t *db_postgres_init2(const str* _url, db_pooling_t pooling)
 {
-	return db_do_init2(_url, (void *)db_postgres_new_connection, pooling);
+	return db_do_init2(_url, (void*) db_postgres_new_connection, pooling);
 }
 
 /*!
@@ -130,7 +169,7 @@ db1_con_t *db_postgres_init2(const str *_url, db_pooling_t pooling)
  * \param _h closed connection, as returned from db_postgres_init
  * \note free all memory and resources
  */
-void db_postgres_close(db1_con_t *_h)
+void db_postgres_close(db1_con_t* _h)
 {
 	db_do_close(_h, db_postgres_free_connection);
 }
@@ -142,9 +181,9 @@ void db_postgres_close(db1_con_t *_h)
  * \param _s query string
  * \return 0 on success, negative on failure
  */
-static int db_postgres_submit_query(const db1_con_t *_con, const str *_s)
+static int db_postgres_submit_query(const db1_con_t* _con, const str* _s)
 {
-	char *s = NULL;
+	char *s=NULL;
 	int i, retries;
 	ExecStatusType pqresult;
 	PGresult *res = NULL;
@@ -153,14 +192,16 @@ static int db_postgres_submit_query(const db1_con_t *_con, const str *_s)
 	time_t max_time;
 	struct timeval wait_time;
 
-	if(!_con || !_s || !_s->s) {
+	if(! _con || !_s || !_s->s)
+	{
 		LM_ERR("invalid parameter value\n");
-		return (-1);
+		return(-1);
 	}
 
 	/* this bit of nonsense in case our connection get screwed up */
-	switch(PQstatus(CON_CONNECTION(_con))) {
-		case CONNECTION_OK:
+	switch(PQstatus(CON_CONNECTION(_con)))
+	{
+		case CONNECTION_OK: 
 			break;
 		case CONNECTION_BAD:
 			LM_DBG("connection reset\n");
@@ -175,23 +216,23 @@ static int db_postgres_submit_query(const db1_con_t *_con, const str *_s)
 		case CONNECTION_NEEDED:
 		default:
 			LM_ERR("%p PQstatus(%s) invalid: %.*s\n", _con,
-					PQerrorMessage(CON_CONNECTION(_con)), _s->len, _s->s);
+				PQerrorMessage(CON_CONNECTION(_con)), _s->len, _s->s);
 			return -1;
 	}
 
-	if(CON_TRANSACTION(_con) == 1)
+	if (CON_TRANSACTION(_con) == 1)
 		retries = 0;
 	else
 		retries = pg_retries;
 
-	s = pkg_malloc((_s->len + 1) * sizeof(char));
-	if(s == NULL) {
-		LM_ERR("%p db_postgres_submit_query Out of Memory: Query: %.*s\n", _con,
-				_s->len, _s->s);
+	s = pkg_malloc((_s->len+1)*sizeof(char));
+	if (s==NULL)
+	{
+		LM_ERR("%p db_postgres_submit_query Out of Memory: Query: %.*s\n", _con, _s->len, _s->s);
 		return -1;
 	}
 
-	memcpy(s, _s->s, _s->len);
+	memcpy( s, _s->s, _s->len );
 	s[_s->len] = '\0';
 
 	for(i = 0; i <= retries; i++) {
@@ -199,55 +240,56 @@ static int db_postgres_submit_query(const db1_con_t *_con, const str *_s)
 		db_postgres_free_query(_con);
 		/* exec the query */
 
-		if(PQsendQuery(CON_CONNECTION(_con), s)) {
-			if(pg_timeout <= 0)
+		if (PQsendQuery(CON_CONNECTION(_con), s)) {
+			if (pg_timeout <= 0)
 				goto do_read;
 
 			max_time = time(NULL) + pg_timeout;
 
-			while(1) {
+			while (1) {
 				sock = PQsocket(CON_CONNECTION(_con));
 				FD_ZERO(&fds);
 				FD_SET(sock, &fds);
 
 				wait_time.tv_usec = 0;
 				wait_time.tv_sec = max_time - time(NULL);
-				if(wait_time.tv_sec <= 0 || wait_time.tv_sec > 0xffffff)
+				if (wait_time.tv_sec <= 0 || wait_time.tv_sec > 0xffffff)
 					goto timeout;
 
 				ret = select(sock + 1, &fds, NULL, NULL, &wait_time);
-				if(ret < 0) {
-					if(errno == EINTR)
+				if (ret < 0) {
+					if (errno == EINTR)
 						continue;
 					LM_WARN("select() error\n");
 					goto reset;
 				}
-				if(!ret) {
-				timeout:
+				if (!ret) {
+timeout:
 					LM_WARN("timeout waiting for postgres reply\n");
 					goto reset;
 				}
 
-				if(!PQconsumeInput(CON_CONNECTION(_con))) {
+				if (!PQconsumeInput(CON_CONNECTION(_con))) {
 					LM_WARN("error reading data from postgres server: %s\n",
 							PQerrorMessage(CON_CONNECTION(_con)));
 					goto reset;
 				}
-				if(!PQisBusy(CON_CONNECTION(_con)))
+				if (!PQisBusy(CON_CONNECTION(_con)))
 					break;
 			}
 
-		do_read:
+do_read:
 			/* Get the result of the query */
-			while((res = PQgetResult(CON_CONNECTION(_con))) != NULL) {
+			while ((res = PQgetResult(CON_CONNECTION(_con))) != NULL) {
 				db_postgres_free_query(_con);
 				CON_RESULT(_con) = res;
 			}
 			pqresult = PQresultStatus(CON_RESULT(_con));
-			if((pqresult != PGRES_FATAL_ERROR)
-					&& (PQstatus(CON_CONNECTION(_con)) == CONNECTION_OK)) {
-				LM_DBG("sending query ok: %p (%d) - [%.*s]\n", _con, pqresult,
-						_s->len, _s->s);
+			if((pqresult!=PGRES_FATAL_ERROR)
+					&& (PQstatus(CON_CONNECTION(_con))==CONNECTION_OK))
+			{
+				LM_DBG("sending query ok: %p (%d) - [%.*s]\n",
+						_con, pqresult, _s->len, _s->s);
 				pkg_free(s);
 				return 0;
 			}
@@ -255,17 +297,17 @@ static int db_postgres_submit_query(const db1_con_t *_con, const str *_s)
 					pqresult, PQresStatus(pqresult));
 		}
 		LM_WARN("postgres query command failed, connection status %d,"
-				" error [%s]\n",
-				PQstatus(CON_CONNECTION(_con)),
+				" error [%s]\n", PQstatus(CON_CONNECTION(_con)),
 				PQerrorMessage(CON_CONNECTION(_con)));
-		if(PQstatus(CON_CONNECTION(_con)) != CONNECTION_OK) {
-		reset:
-			LM_DBG("resetting the connection to postgress server\n");
+		if(PQstatus(CON_CONNECTION(_con))!=CONNECTION_OK)
+		{
+reset:
+			LM_DBG("reseting the connection to postgress server\n");
 			PQreset(CON_CONNECTION(_con));
 		}
 	}
 	LM_ERR("%p PQsendQuery Error: %s Query: %.*s\n", _con,
-			PQerrorMessage(CON_CONNECTION(_con)), _s->len, _s->s);
+	PQerrorMessage(CON_CONNECTION(_con)), _s->len, _s->s);
 	pkg_free(s);
 	return -1;
 }
@@ -286,33 +328,32 @@ static int db_postgres_submit_query(const db1_con_t *_con, const str *_s)
  * \param nrows number of fetches rows
  * \return 0 on success, negative on failure
  */
-int db_postgres_fetch_result(
-		const db1_con_t *_con, db1_res_t **_res, const int nrows)
+int db_postgres_fetch_result(const db1_con_t* _con, db1_res_t** _res, const int nrows)
 {
 	int rows;
 	ExecStatusType pqresult;
 
-	if(!_con || !_res || nrows < 0) {
+	if (!_con || !_res || nrows < 0) {
 		LM_ERR("invalid parameter value\n");
 		return -1;
 	}
 
 	/* exit if the fetch count is zero */
-	if(nrows == 0) {
-		if(*_res)
+	if (nrows == 0) {
+		if (*_res)
 			db_free_result(*_res);
 
 		*_res = 0;
 		return 0;
 	}
 
-	if(*_res == NULL) {
+	if (*_res == NULL) {
 		/* Allocate a new result structure */
 		*_res = db_new_result();
 
 		pqresult = PQresultStatus(CON_RESULT(_con));
 		LM_DBG("%p PQresultStatus(%s) PQgetResult(%p)\n", _con,
-				PQresStatus(pqresult), CON_RESULT(_con));
+			PQresStatus(pqresult), CON_RESULT(_con));
 
 		switch(pqresult) {
 			case PGRES_COMMAND_OK:
@@ -323,7 +364,7 @@ int db_postgres_fetch_result(
 			case PGRES_TUPLES_OK:
 				/* Successful completion of a command returning data
 				 * (such as a SELECT or SHOW). */
-				if(db_postgres_get_columns(_con, *_res) < 0) {
+				if (db_postgres_get_columns(_con, *_res) < 0) {
 					LM_ERR("failed to get column names\n");
 					return -2;
 				}
@@ -335,7 +376,7 @@ int db_postgres_fetch_result(
 						PQresStatus(pqresult));
 				LM_ERR("%p: %s\n", _con,
 						PQresultErrorMessage(CON_RESULT(_con)));
-				if(*_res)
+				if (*_res)
 					db_free_result(*_res);
 				*_res = 0;
 				return -3;
@@ -350,11 +391,9 @@ int db_postgres_fetch_result(
 			case PGRES_BAD_RESPONSE:
 			default:
 				LM_ERR("%p - probable invalid query\n", _con);
-				LM_ERR("%p - PQresultStatus(%s)\n", _con,
-						PQresStatus(pqresult));
-				LM_ERR("%p: %s\n", _con,
-						PQresultErrorMessage(CON_RESULT(_con)));
-				if(*_res)
+				LM_ERR("%p - PQresultStatus(%s)\n", _con, PQresStatus(pqresult));
+				LM_ERR("%p: %s\n", _con, PQresultErrorMessage(CON_RESULT(_con)));
+				if (*_res)
 					db_free_result(*_res);
 				*_res = 0;
 				return -4;
@@ -375,12 +414,12 @@ int db_postgres_fetch_result(
 	rows = RES_NUM_ROWS(*_res) - RES_LAST_ROW(*_res);
 
 	/* If there aren't any more rows left to process, exit */
-	if(rows <= 0)
+	if (rows <= 0)
 		return 0;
 
 	/* if the fetch count is less than the remaining rows to process                 */
 	/* set the number of rows to process (during this call) equal to the fetch count */
-	if(nrows < rows)
+	if (nrows < rows)
 		rows = nrows;
 
 	RES_ROW_N(*_res) = rows;
@@ -388,9 +427,10 @@ int db_postgres_fetch_result(
 	LM_DBG("converting row %d of %d count %d\n", RES_LAST_ROW(*_res),
 			RES_NUM_ROWS(*_res), RES_ROW_N(*_res));
 
-	if(db_postgres_convert_rows(_con, *_res) < 0) {
+	if (db_postgres_convert_rows(_con, *_res) < 0) {
 		LM_ERR("failed to convert rows\n");
-		db_free_result(*_res);
+		if (*_res)
+			db_free_result(*_res);
 
 		*_res = 0;
 		return -3;
@@ -406,9 +446,10 @@ int db_postgres_fetch_result(
  * \brief Free database and any old query results
  * \param _con database connection
  */
-static void db_postgres_free_query(const db1_con_t *_con)
+static void db_postgres_free_query(const db1_con_t* _con)
 {
-	if(CON_RESULT(_con)) {
+	if(CON_RESULT(_con))
+	{
 		LM_DBG("PQclear(%p) result set\n", CON_RESULT(_con));
 		PQclear(CON_RESULT(_con));
 		CON_RESULT(_con) = 0;
@@ -422,16 +463,16 @@ static void db_postgres_free_query(const db1_con_t *_con)
  * \param _r result set
  * \return 0 on success, -1 on failure
  */
-int db_postgres_free_result(db1_con_t *_con, db1_res_t *_r)
+int db_postgres_free_result(db1_con_t* _con, db1_res_t* _r)
 {
-	if((!_con) || (!_r)) {
-		LM_ERR("invalid parameter value\n");
-		return -1;
-	}
-	if(db_free_result(_r) < 0) {
-		LM_ERR("unable to free result structure\n");
-		return -1;
-	}
+     if ((!_con) || (!_r)) {
+	     LM_ERR("invalid parameter value\n");
+	     return -1;
+     }
+     if (db_free_result(_r) < 0) {
+	     LM_ERR("unable to free result structure\n");
+	     return -1;
+     }
 	db_postgres_free_query(_con);
 	return 0;
 }
@@ -450,13 +491,12 @@ int db_postgres_free_result(db1_con_t *_con, db1_res_t *_r)
  * \param _r result set
  * \return 0 on success, negative on failure
  */
-int db_postgres_query(const db1_con_t *_h, const db_key_t *_k,
-		const db_op_t *_op, const db_val_t *_v, const db_key_t *_c,
-		const int _n, const int _nc, const db_key_t _o, db1_res_t **_r)
+int db_postgres_query(const db1_con_t* _h, const db_key_t* _k, const db_op_t* _op,
+	     const db_val_t* _v, const db_key_t* _c, const int _n, const int _nc,
+	     const db_key_t _o, db1_res_t** _r)
 {
-	return db_do_query(_h, _k, _op, _v, _c, _n, _nc, _o, _r,
-			db_postgres_val2str, db_postgres_submit_query,
-			db_postgres_store_result);
+	return db_do_query(_h, _k, _op, _v, _c, _n, _nc, _o, _r, db_postgres_val2str,
+		db_postgres_submit_query, db_postgres_store_result);
 }
 
 
@@ -473,17 +513,17 @@ int db_postgres_query(const db1_con_t *_h, const db_key_t *_k,
  * \param _r result set
  * \return 0 on success, negative on failure
  */
-int db_postgres_query_lock(const db1_con_t *_h, const db_key_t *_k,
-		const db_op_t *_op, const db_val_t *_v, const db_key_t *_c,
-		const int _n, const int _nc, const db_key_t _o, db1_res_t **_r)
+int db_postgres_query_lock(const db1_con_t* _h, const db_key_t* _k, const db_op_t* _op,
+	     const db_val_t* _v, const db_key_t* _c, const int _n, const int _nc,
+	     const db_key_t _o, db1_res_t** _r)
 {
-	if(CON_TRANSACTION(_h) == 0) {
+	if (CON_TRANSACTION(_h) == 0)
+	{
 		LM_ERR("transaction not in progress\n");
 		return -1;
 	}
-	return db_do_query_lock(_h, _k, _op, _v, _c, _n, _nc, _o, _r,
-			db_postgres_val2str, db_postgres_submit_query,
-			db_postgres_store_result);
+	return db_do_query_lock(_h, _k, _op, _v, _c, _n, _nc, _o, _r, db_postgres_val2str,
+		db_postgres_submit_query, db_postgres_store_result);
 }
 
 
@@ -494,10 +534,10 @@ int db_postgres_query_lock(const db1_con_t *_h, const db_key_t *_k,
  * \param _r result set
  * \return 0 on success, negative on failure
  */
-int db_postgres_raw_query(const db1_con_t *_h, const str *_s, db1_res_t **_r)
+int db_postgres_raw_query(const db1_con_t* _h, const str* _s, db1_res_t** _r)
 {
-	return db_do_raw_query(
-			_h, _s, _r, db_postgres_submit_query, db_postgres_store_result);
+	return db_do_raw_query(_h, _s, _r, db_postgres_submit_query,
+		db_postgres_store_result);
 }
 
 
@@ -514,37 +554,37 @@ int db_postgres_raw_query(const db1_con_t *_h, const str *_s, db1_res_t **_r)
  * result structure. If this routine returns < 0, then the result structure
  * is freed before returning to the caller.
  */
-int db_postgres_store_result(const db1_con_t *_con, db1_res_t **_r)
+int db_postgres_store_result(const db1_con_t* _con, db1_res_t** _r)
 {
 	ExecStatusType pqresult;
 	int rc = 0;
 
 	*_r = db_new_result();
-	if(*_r == NULL) {
+	if (*_r==NULL) {
 		LM_ERR("failed to init new result\n");
 		rc = -1;
 		goto done;
 	}
 
 	pqresult = PQresultStatus(CON_RESULT(_con));
-
+	
 	LM_DBG("%p PQresultStatus(%s) PQgetResult(%p)\n", _con,
-			PQresStatus(pqresult), CON_RESULT(_con));
+		PQresStatus(pqresult), CON_RESULT(_con));
 
 	CON_AFFECTED(_con) = 0;
 
 	switch(pqresult) {
 		case PGRES_COMMAND_OK:
-			/* Successful completion of a command returning no data
+		/* Successful completion of a command returning no data
 		 * (such as INSERT or UPDATE). */
-			rc = 0;
-			CON_AFFECTED(_con) = atoi(PQcmdTuples(CON_RESULT(_con)));
-			break;
+		rc = 0;
+		CON_AFFECTED(_con) = atoi(PQcmdTuples(CON_RESULT(_con)));
+		break;
 
 		case PGRES_TUPLES_OK:
 			/* Successful completion of a command returning data
 			 * (such as a SELECT or SHOW). */
-			if(db_postgres_convert_result(_con, *_r) < 0) {
+			if (db_postgres_convert_result(_con, *_r) < 0) {
 				LM_ERR("error while converting result\n");
 				LM_DBG("freeing result set at %p\n", _r);
 				pkg_free(*_r);
@@ -552,14 +592,13 @@ int db_postgres_store_result(const db1_con_t *_con, db1_res_t **_r)
 				rc = -4;
 				break;
 			}
-			rc = 0;
+			rc =  0;
 			CON_AFFECTED(_con) = atoi(PQcmdTuples(CON_RESULT(_con)));
 			break;
 		/* query failed */
 		case PGRES_FATAL_ERROR:
 			LM_ERR("invalid query, execution aborted\n");
-			LM_ERR("driver error: %s, %s\n", PQresStatus(pqresult),
-					PQresultErrorMessage(CON_RESULT(_con)));
+			LM_ERR("driver error: %s, %s\n", PQresStatus(pqresult), PQresultErrorMessage(CON_RESULT(_con)));
 			db_free_result(*_r);
 			*_r = 0;
 			rc = -3;
@@ -575,8 +614,7 @@ int db_postgres_store_result(const db1_con_t *_con, db1_res_t **_r)
 		case PGRES_BAD_RESPONSE:
 		default:
 			LM_ERR("probable invalid query, execution aborted\n");
-			LM_ERR("driver message: %s, %s\n", PQresStatus(pqresult),
-					PQresultErrorMessage(CON_RESULT(_con)));
+			LM_ERR("driver message: %s, %s\n", PQresStatus(pqresult), PQresultErrorMessage(CON_RESULT(_con)));
 			db_free_result(*_r);
 			*_r = 0;
 			rc = -4;
@@ -596,22 +634,21 @@ done:
  * \param _n number of key=value pairs
  * \return 0 on success, negative on failure
  */
-int db_postgres_insert(const db1_con_t *_h, const db_key_t *_k,
-		const db_val_t *_v, const int _n)
+int db_postgres_insert(const db1_con_t* _h, const db_key_t* _k, const db_val_t* _v,
+		const int _n)
 {
-	db1_res_t *_r = NULL;
+	db1_res_t* _r = NULL;
 
-	int ret = db_do_insert(
-			_h, _k, _v, _n, db_postgres_val2str, db_postgres_submit_query);
+	int ret = db_do_insert(_h, _k, _v, _n, db_postgres_val2str, db_postgres_submit_query);
 	// finish the async query, otherwise the next query will not complete
 	int tmp = db_postgres_store_result(_h, &_r);
 
-	if(tmp < 0) {
+	if (tmp < 0) {
 		LM_WARN("unexpected result returned");
 		ret = tmp;
 	}
-
-	if(_r)
+	
+	if (_r)
 		db_free_result(_r);
 
 	return ret;
@@ -627,173 +664,25 @@ int db_postgres_insert(const db1_con_t *_h, const db_key_t *_k,
  * \param _n number of key=value pairs
  * \return 0 on success, negative on failure
  */
-int db_postgres_delete(const db1_con_t *_h, const db_key_t *_k,
-		const db_op_t *_o, const db_val_t *_v, const int _n)
+int db_postgres_delete(const db1_con_t* _h, const db_key_t* _k, const db_op_t* _o,
+		const db_val_t* _v, const int _n)
 {
-	db1_res_t *_r = NULL;
-	int ret = db_do_delete(
-			_h, _k, _o, _v, _n, db_postgres_val2str, db_postgres_submit_query);
+	db1_res_t* _r = NULL;
+	int ret = db_do_delete(_h, _k, _o, _v, _n, db_postgres_val2str,
+		db_postgres_submit_query);
 	int tmp = db_postgres_store_result(_h, &_r);
 
-	if(tmp < 0) {
+	if (tmp < 0) {
 		LM_WARN("unexpected result returned");
 		ret = tmp;
 	}
 
-	if(_r)
+	if (_r)
 		db_free_result(_r);
 
 	return ret;
 }
 
-static pg_constraint_t *pg_constraint = NULL;
-
-/*!
- * \brief add/save a detected constraint to the list in memory
- * \param c database constraint structure
- */
-static void db_postgres_constraint_add(pg_constraint_t *c)
-{
-	if(!pg_constraint) {
-		pg_constraint = c;
-		LM_DBG("adding init constraint [%s][%s][%s]\n", c->database.s,
-				c->table.s, c->unique.s);
-		clist_init(pg_constraint, next, prev);
-	} else {
-		LM_DBG("adding append constraint [%s][%s][%s]\n", c->database.s,
-				c->table.s, c->unique.s);
-		clist_append(pg_constraint, c, next, prev);
-	}
-}
-
-static void db_postgres_constraint_destroy(pg_constraint_t *c)
-{
-	if(!c)
-		return;
-	if(c->database.s)
-		pkg_free(c->database.s);
-	if(c->table.s)
-		pkg_free(c->table.s);
-	if(c->unique.s)
-		pkg_free(c->unique.s);
-	pkg_free(c);
-	c = NULL;
-}
-
-static pg_constraint_t *db_postgres_constraint_new(
-		const char *db, const str *table, const char *unique)
-{
-	pg_constraint_t *c = NULL;
-
-	if(table == NULL || table->s == NULL || table->len <= 0 || unique == NULL)
-		return NULL;
-
-	c = pkg_malloc(sizeof(pg_constraint_t));
-
-	if(!c)
-		return NULL;
-	memset(c, 0, sizeof(pg_constraint_t));
-
-	c->database.len = strlen(db);
-	c->database.s = pkg_malloc(c->database.len + 1);
-	if(!c->database.s)
-		goto error;
-	strcpy(c->database.s, db);
-
-	c->table.len = table->len;
-	c->table.s = pkg_malloc(c->table.len + 1);
-	if(!c->table.s)
-		goto error;
-	strcpy(c->table.s, table->s);
-
-	c->unique.len = strlen(unique);
-	c->unique.s = pkg_malloc(c->unique.len + 1);
-	if(!c->unique.s)
-		goto error;
-	strcpy(c->unique.s, unique);
-
-	db_postgres_constraint_add(c);
-	return c;
-error:
-	db_postgres_constraint_destroy(c);
-	return NULL;
-}
-
-static pg_constraint_t *db_postgres_constraint_search(char *db, char *table)
-{
-	pg_constraint_t *c;
-	if(!pg_constraint)
-		return NULL;
-	clist_foreach(pg_constraint, c, next)
-	{
-		LM_DBG("searching[%s][%s][%s]\n", c->database.s, c->table.s,
-				c->unique.s);
-		if(strcmp(db, c->database.s) == 0 && strcmp(table, c->table.s) == 0) {
-			return c;
-		}
-	}
-	return NULL;
-}
-
-static str sql_str;
-
-/*!
- * \brief search for saved contraint or query pg_constraint to get the unique constraint
- * \param _h structure representing database connection
- */
-static char *db_postgres_constraint_get(const db1_con_t *_h)
-{
-	struct db_row *rows;
-	const char *val = NULL;
-	const char *type = NULL;
-	int x;
-	db1_res_t *res = NULL;
-	int ret;
-	db1_con_t *db_con;
-
-	pg_constraint_t *constraint = db_postgres_constraint_search(
-			PQdb(CON_CONNECTION(_h)), CON_TABLE(_h)->s);
-	if(constraint) {
-		return constraint->unique.s;
-	}
-	ret = snprintf(postgres_sql_buf, sql_buffer_size,
-			"select conname, contype from pg_constraint where conrelid = "
-			"(select oid from pg_class where relname like '%s%.*s%s')",
-			CON_TQUOTESZ(_h), CON_TABLE(_h)->len, CON_TABLE(_h)->s,
-			CON_TQUOTESZ(_h));
-
-	if(ret < 0 || ret >= sql_buffer_size) {
-		LM_ERR("error creating pg_constraint query, invalid size[%d]\n", ret);
-		return NULL;
-	}
-
-	sql_str.len = ret;
-	sql_str.s = postgres_sql_buf;
-
-	if(db_postgres_raw_query(_h, &sql_str, &res) < 0 || res == NULL) {
-		LM_ERR("error executing pg_constraint query !\n");
-		return NULL;
-	}
-
-	rows = RES_ROWS(res);
-	for(x = 0; x < RES_ROW_N(res); x++) {
-		val = (ROW_VALUES(&rows[x])[0]).val.string_val;
-		type = (ROW_VALUES(&rows[x])[1]).val.string_val;
-		LM_DBG("name[%s]type[%s]\n", val, type);
-		if(type[0] == 'u')
-			break; // always favor unique constraint over primary key constraint
-	}
-	constraint = db_postgres_constraint_new(
-			PQdb(CON_CONNECTION(_h)), CON_TABLE(_h), val);
-
-	db_con = (db1_con_t *)_h;
-	db_postgres_free_result(db_con, res);
-
-	if(constraint)
-		return constraint->unique.s;
-
-	return NULL;
-}
 
 /*!
  * Insert a row into a specified table, update on duplicate key.
@@ -802,76 +691,52 @@ static char *db_postgres_constraint_get(const db1_con_t *_h)
  * \param _v values of the keys
  * \param _n number of key=value pairs
  *
+ * Why is insert_update doing nothing in Kamailio db insert_update ?
+ *
  * As explained in the following article the design of "UPSERT" in PostgreSQL is requiring to be explicit about the constraint on which we accept to do update
  * modification to Kamailio database framework/API would be required to expose which specific key constraint should be handled as an update
  * http://pgeoghegan.blogspot.com/2015/10/avoid-naming-constraint-directly-when.html
+ *
+ * In the mean time DO NOTHING is providing the simple feature to ignore error on insert when facing a constraint violation
  */
 
-int db_postgres_insert_update(const db1_con_t *_h, const db_key_t *_k,
-		const db_val_t *_v, const int _n)
+int db_postgres_insert_update(const db1_con_t* _h, const db_key_t* _k, const db_val_t* _v,
+	const int _n)
 {
 	int off, ret;
+	static str sql_str;
 
-	if((!_h) || (!_k) || (!_v) || (!_n)) {
+	if ((!_h) || (!_k) || (!_v) || (!_n)) {
 		LM_ERR("invalid parameter value\n");
 		return -1;
 	}
-	char *constraint = db_postgres_constraint_get(_h);
 
 	ret = snprintf(postgres_sql_buf, sql_buffer_size, "insert into %s%.*s%s (",
-			CON_TQUOTESZ(_h), CON_TABLE(_h)->len, CON_TABLE(_h)->s,
-			CON_TQUOTESZ(_h));
-	if(ret < 0 || ret >= sql_buffer_size)
-		goto error;
+			CON_TQUOTESZ(_h), CON_TABLE(_h)->len, CON_TABLE(_h)->s, CON_TQUOTESZ(_h));
+	if (ret < 0 || ret >= sql_buffer_size) goto error;
 	off = ret;
 
-	ret = db_print_columns(postgres_sql_buf + off, sql_buffer_size - off, _k,
-			_n, CON_TQUOTESZ(_h));
-	if(ret < 0)
-		return -1;
+	ret = db_print_columns(postgres_sql_buf + off, sql_buffer_size - off, _k, _n, CON_TQUOTESZ(_h));
+	if (ret < 0) return -1;
 	off += ret;
 
 	ret = snprintf(postgres_sql_buf + off, sql_buffer_size - off, ") values (");
-	if(ret < 0 || ret >= (sql_buffer_size - off))
-		goto error;
+	if (ret < 0 || ret >= (sql_buffer_size - off)) goto error;
 	off += ret;
-	ret = db_print_values(_h, postgres_sql_buf + off, sql_buffer_size - off, _v,
-			_n, db_postgres_val2str);
-	if(ret < 0)
-		return -1;
+	ret = db_print_values(_h, postgres_sql_buf + off, sql_buffer_size - off, _v, _n, db_postgres_val2str);
+	if (ret < 0) return -1;
 	off += ret;
 
 	*(postgres_sql_buf + off++) = ')';
 
-	if(constraint) {
-		ret = snprintf(postgres_sql_buf + off, sql_buffer_size - off,
-				" on conflict on constraint %s do update set ", constraint);
-		if(ret < 0 || ret >= (sql_buffer_size - off))
-			goto error;
-		off += ret;
-
-		ret = db_print_set(_h, postgres_sql_buf + off, sql_buffer_size - off,
-				_k, _v, _n, db_postgres_val2str);
-		if(ret < 0) {
-			LM_ERR("error building query\n");
-			return -1;
-		}
-		off += ret;
-		if(off + 1 > sql_buffer_size)
-			goto error;
-		postgres_sql_buf[off] = '\0';
-	} else {
-		ret = snprintf(postgres_sql_buf + off, sql_buffer_size - off,
-				" on conflict do nothing ");
-		if(ret < 0 || ret >= (sql_buffer_size - off))
-			goto error;
-		off += ret;
-	}
+	ret = snprintf(postgres_sql_buf + off, sql_buffer_size - off, " on conflict do nothing ");
+	if (ret < 0 || ret >= (sql_buffer_size - off)) goto error;
+	off += ret;
 
 	sql_str.s = postgres_sql_buf;
 	sql_str.len = off;
-	LM_DBG("query : %s\n", sql_str.s);
-	if(db_postgres_submit_query(_h, &sql_str) < 0) {
+	LM_DBG("%s\n", sql_str.s);
+	if (db_postgres_submit_query(_h, &sql_str) < 0) {
 		LM_ERR("error while submitting query\n");
 		return -2;
 	}
@@ -881,6 +746,7 @@ error:
 	LM_ERR("error while preparing insert_update operation\n");
 	return -1;
 }
+
 
 /*!
  * Update some rows in the specified table
@@ -894,21 +760,21 @@ error:
  * \param _un number of columns to update
  * \return 0 on success, negative on failure
  */
-int db_postgres_update(const db1_con_t *_h, const db_key_t *_k,
-		const db_op_t *_o, const db_val_t *_v, const db_key_t *_uk,
-		const db_val_t *_uv, const int _n, const int _un)
+int db_postgres_update(const db1_con_t* _h, const db_key_t* _k, const db_op_t* _o,
+		const db_val_t* _v, const db_key_t* _uk, const db_val_t* _uv, const int _n,
+		const int _un)
 {
-	db1_res_t *_r = NULL;
-	int ret = db_do_update(_h, _k, _o, _v, _uk, _uv, _n, _un,
-			db_postgres_val2str, db_postgres_submit_query);
+	db1_res_t* _r = NULL;
+	int ret = db_do_update(_h, _k, _o, _v, _uk, _uv, _n, _un, db_postgres_val2str,
+		db_postgres_submit_query);
 	int tmp = db_postgres_store_result(_h, &_r);
 
-	if(tmp < 0) {
+	if (tmp < 0) {
 		LM_WARN("unexpected result returned");
 		ret = tmp;
 	}
-
-	if(_r)
+	
+	if (_r)
 		db_free_result(_r);
 
 	return ret;
@@ -919,9 +785,9 @@ int db_postgres_update(const db1_con_t *_h, const db_key_t *_k,
  * \param _h database handle
  * \return returns the affected rows as integer or -1 on error.
  */
-int db_postgres_affected_rows(const db1_con_t *_h)
+int db_postgres_affected_rows(const db1_con_t* _h)
 {
-	if(!_h) {
+	if (!_h) {
 		LM_ERR("invalid parameter value\n");
 		return -1;
 	}
@@ -931,10 +797,9 @@ int db_postgres_affected_rows(const db1_con_t *_h)
 /**
  * Starts a single transaction that will consist of one or more queries (SQL BEGIN)
  * \param _h database handle
- * \param _l database locking , supports no locking, write locking or full locking
  * \return 0 on success, negative on failure
  */
-int db_postgres_start_transaction(db1_con_t *_h, db_locking_t _l)
+int db_postgres_start_transaction(db1_con_t* _h, db_locking_t _l)
 {
 	db1_res_t *res = NULL;
 	str begin_str = str_init("BEGIN");
@@ -943,72 +808,67 @@ int db_postgres_start_transaction(db1_con_t *_h, db_locking_t _l)
 	str lock_full_end_str = str_init(" IN ACCESS EXCLUSIVE MODE");
 	str *lock_end_str = &lock_write_end_str;
 	str lock_str = {0, 0};
-
-	if(!_h) {
+	
+	if (!_h) {
 		LM_ERR("invalid parameter value\n");
 		return -1;
 	}
 
-	if(CON_TRANSACTION(_h) == 1) {
+	if (CON_TRANSACTION(_h) == 1) {
 		LM_ERR("transaction already started\n");
 		return -1;
 	}
 
-	if(db_postgres_raw_query(_h, &begin_str, &res) < 0) {
+	if (db_postgres_raw_query(_h, &begin_str, &res) < 0)
+	{
 		LM_ERR("executing raw_query\n");
 		return -1;
 	}
 
-	if(res)
-		db_postgres_free_result(_h, res);
+	if (res) db_postgres_free_result(_h, res);
 
 	CON_TRANSACTION(_h) = 1;
 
-	switch(_l) {
-		case DB_LOCKING_NONE:
-			break;
-		case DB_LOCKING_FULL:
-			lock_end_str = &lock_full_end_str;
+	switch(_l)
+	{
+	case DB_LOCKING_NONE:
+		break;
+	case DB_LOCKING_FULL:
+		lock_end_str = &lock_full_end_str;
 		/* Fall-thru */
-		case DB_LOCKING_WRITE:
-			if((lock_str.s = pkg_malloc((lock_start_str.len + CON_TABLE(_h)->len
-												+ lock_end_str->len)
-										* sizeof(char)))
-					== NULL) {
-				LM_ERR("allocating pkg memory\n");
-				goto error;
-			}
-
-			memcpy(lock_str.s, lock_start_str.s, lock_start_str.len);
-			lock_str.len += lock_start_str.len;
-			memcpy(lock_str.s + lock_str.len, CON_TABLE(_h)->s,
-					CON_TABLE(_h)->len);
-			lock_str.len += CON_TABLE(_h)->len;
-			memcpy(lock_str.s + lock_str.len, lock_end_str->s,
-					lock_end_str->len);
-			lock_str.len += lock_end_str->len;
-
-			if(db_postgres_raw_query(_h, &lock_str, &res) < 0) {
-				LM_ERR("executing raw_query\n");
-				goto error;
-			}
-
-			if(res)
-				db_postgres_free_result(_h, res);
-			if(lock_str.s)
-				pkg_free(lock_str.s);
-			break;
-
-		default:
-			LM_WARN("unrecognised lock type\n");
+	case DB_LOCKING_WRITE:
+		if ((lock_str.s = pkg_malloc((lock_start_str.len + CON_TABLE(_h)->len + lock_end_str->len) * sizeof(char))) == NULL)
+		{
+			LM_ERR("allocating pkg memory\n");
 			goto error;
+		}
+
+		memcpy(lock_str.s, lock_start_str.s, lock_start_str.len);
+		lock_str.len += lock_start_str.len;
+		memcpy(lock_str.s + lock_str.len, CON_TABLE(_h)->s, CON_TABLE(_h)->len);
+		lock_str.len += CON_TABLE(_h)->len;
+		memcpy(lock_str.s + lock_str.len, lock_end_str->s, lock_end_str->len);
+		lock_str.len += lock_end_str->len;
+
+		if (db_postgres_raw_query(_h, &lock_str, &res) < 0)
+		{
+			LM_ERR("executing raw_query\n");
+			goto error;
+		}
+
+		if (res) db_postgres_free_result(_h, res);
+		if (lock_str.s) pkg_free(lock_str.s);
+		break;
+
+	default:
+		LM_WARN("unrecognised lock type\n");
+		goto error;
 	}
 
 	return 0;
 
 error:
-	if(lock_str.s)
-		pkg_free(lock_str.s);
+	if (lock_str.s) pkg_free(lock_str.s);
 	db_postgres_abort_transaction(_h);
 	return -1;
 }
@@ -1018,28 +878,28 @@ error:
  * \param _h database handle
  * \return 0 on success, negative on failure
  */
-int db_postgres_end_transaction(db1_con_t *_h)
+int db_postgres_end_transaction(db1_con_t* _h)
 {
 	db1_res_t *res = NULL;
 	str query_str = str_init("COMMIT");
-
-	if(!_h) {
+	
+	if (!_h) {
 		LM_ERR("invalid parameter value\n");
 		return -1;
 	}
 
-	if(CON_TRANSACTION(_h) == 0) {
+	if (CON_TRANSACTION(_h) == 0) {
 		LM_ERR("transaction not in progress\n");
 		return -1;
 	}
 
-	if(db_postgres_raw_query(_h, &query_str, &res) < 0) {
+	if (db_postgres_raw_query(_h, &query_str, &res) < 0)
+	{
 		LM_ERR("executing raw_query\n");
 		return -1;
 	}
 
-	if(res)
-		db_postgres_free_result(_h, res);
+	if (res) db_postgres_free_result(_h, res);
 
 	/* Only _end_ the transaction after the raw_query.  That way, if the
  	   raw_query fails, and the calling module does an abort_transaction()
@@ -1053,17 +913,17 @@ int db_postgres_end_transaction(db1_con_t *_h)
  * \param _h database handle
  * \return 1 if there was something to rollback, 0 if not, negative on failure
  */
-int db_postgres_abort_transaction(db1_con_t *_h)
+int db_postgres_abort_transaction(db1_con_t* _h)
 {
 	db1_res_t *res = NULL;
 	str query_str = str_init("ROLLBACK");
-
-	if(!_h) {
+	
+	if (!_h) {
 		LM_ERR("invalid parameter value\n");
 		return -1;
 	}
 
-	if(CON_TRANSACTION(_h) == 0) {
+	if (CON_TRANSACTION(_h) == 0) {
 		LM_DBG("nothing to rollback\n");
 		return 0;
 	}
@@ -1072,13 +932,13 @@ int db_postgres_abort_transaction(db1_con_t *_h)
  	   transaction now or all future starts will fail */
 	CON_TRANSACTION(_h) = 0;
 
-	if(db_postgres_raw_query(_h, &query_str, &res) < 0) {
+	if (db_postgres_raw_query(_h, &query_str, &res) < 0)
+	{
 		LM_ERR("executing raw_query\n");
 		return -1;
 	}
 
-	if(res)
-		db_postgres_free_result(_h, res);
+	if (res) db_postgres_free_result(_h, res);
 
 	return 1;
 }
@@ -1089,7 +949,7 @@ int db_postgres_abort_transaction(db1_con_t *_h)
  * \param _t table name
  * \return 0 on success, negative on error
  */
-int db_postgres_use_table(db1_con_t *_con, const str *_t)
+int db_postgres_use_table(db1_con_t* _con, const str* _t)
 {
 	return db_use_table(_con, _t);
 }
@@ -1105,52 +965,56 @@ int db_postgres_use_table(db1_con_t *_con, const str *_t)
  * \param _m mode - first update, then insert, or first insert, then update
  * \return 0 on success, negative on failure
  */
-int db_postgres_replace(const db1_con_t *_h, const db_key_t *_k,
-		const db_val_t *_v, const int _n, const int _un, const int _m)
+int db_postgres_replace(const db1_con_t* _h, const db_key_t* _k,
+		const db_val_t* _v, const int _n, const int _un, const int _m)
 {
 	unsigned int pos = 0;
 	int i;
 
-	if(_un > _n) {
+	if(_un > _n)
+	{
 		LM_ERR("number of columns for unique key is too high\n");
 		return -1;
 	}
 
-	if(_un > 0) {
-		for(i = 0; i < _un; i++) {
-			if(!VAL_NULL(&_v[i])) {
-				switch(VAL_TYPE(&_v[i])) {
+	if(_un > 0)
+	{
+		for(i=0; i<_un; i++)
+		{
+			if(!VAL_NULL(&_v[i]))
+			{
+				switch(VAL_TYPE(&_v[i]))
+				{
 					case DB1_INT:
 						pos += VAL_UINT(&_v[i]);
 						break;
 					case DB1_STR:
-						pos += ((VAL_STR(&_v[i])).s)
-									   ? get_hash1_raw((VAL_STR(&_v[i])).s,
-												 (VAL_STR(&_v[i])).len)
-									   : 0;
+						pos += ((VAL_STR(&_v[i])).s)?get_hash1_raw((VAL_STR(&_v[i])).s,
+									(VAL_STR(&_v[i])).len):0;
 						break;
 					case DB1_STRING:
-						pos += (VAL_STRING(&_v[i]))
-									   ? get_hash1_raw(VAL_STRING(&_v[i]),
-												 strlen(VAL_STRING(&_v[i])))
-									   : 0;
+						pos += (VAL_STRING(&_v[i]))?get_hash1_raw(VAL_STRING(&_v[i]),
+									strlen(VAL_STRING(&_v[i]))):0;
 						break;
 					default:
 						break;
 				}
 			}
 		}
-		pos &= (_pg_lock_size - 1);
+		pos &= (_pg_lock_size-1);
 		lock_set_get(_pg_lock_set, pos);
-		if(db_postgres_update(_h, _k, 0, _v, _k + _un, _v + _un, _un, _n - _un)
-				< 0) {
+		if(db_postgres_update(_h, _k, 0, _v, _k + _un,
+						_v + _un, _un, _n -_un)< 0)
+		{
 			LM_ERR("update failed\n");
 			lock_set_release(_pg_lock_set, pos);
 			return -1;
 		}
 
-		if(db_postgres_affected_rows(_h) <= 0) {
-			if(db_postgres_insert(_h, _k, _v, _n) < 0) {
+		if (db_postgres_affected_rows(_h) <= 0)
+		{
+			if(db_postgres_insert(_h, _k, _v, _n)< 0)
+			{
 				LM_ERR("insert failed\n");
 				lock_set_release(_pg_lock_set, pos);
 				return -1;
@@ -1161,7 +1025,8 @@ int db_postgres_replace(const db1_con_t *_h, const db_key_t *_k,
 		}
 		lock_set_release(_pg_lock_set, pos);
 	} else {
-		if(db_postgres_insert(_h, _k, _v, _n) < 0) {
+		if(db_postgres_insert(_h, _k, _v, _n)< 0)
+		{
 			LM_ERR("direct insert failed\n");
 			return -1;
 		}
@@ -1169,3 +1034,4 @@ int db_postgres_replace(const db1_con_t *_h, const db_key_t *_k,
 	}
 	return 0;
 }
+

@@ -11,12 +11,12 @@ NAME=db_postgres.so
 
 ifeq ($(CROSS_COMPILE),)
 LIBPQ_BUILDER = $(shell \
-	if pkg-config --exists libpq; then \
-		echo 'pkg-config libpq'; \
-	fi)
+        if pkg-config --exists libpq; then \
+                echo 'pkg-config libpq'; \
+        fi)
 ifneq ($(LIBPQ_BUILDER),)
-	DEFS += $(shell $(LIBPQ_BUILDER) --cflags)
-	LIBS += $(shell $(LIBPQ_BUILDER) --libs)
+        DEFS += $(shell $(LIBPQ_BUILDER) --cflags)
+        LIBS += $(shell $(LIBPQ_BUILDER) --libs)
 endif
 endif
 
@@ -27,17 +27,17 @@ PGCFG=$(shell which pg_config)
 endif
 
 ifneq ($(PGCFG),)
-	# use autodetection
-	DEFS += -I$(shell $(PGCFG) --includedir)
-	LIBS += -L$(shell $(PGCFG) --libdir) -lpq
+        # use autodetection
+        DEFS += -I$(shell $(PGCFG) --includedir)
+        LIBS += -L$(shell $(PGCFG) --libdir) -lpq
 else
-	# use standard know paths
-	# libpq-fe.h locations
-	DEFS +=-I$(LOCALBASE)/include -I$(LOCALBASE)/pgsql/include \
-		-I$(SYSBASE)/include/pgsql -I$(SYSBASE)/include/postgresql \
-		-I$(SYSBASE)/include/postgresql/8.0
-	LIBS +=-L$(LOCALBASE)/lib -L$(LOCALBASE)/pgsql/lib \
-		-L$(LOCALBASE)/lib/pgsql -lpq
+        # use standard know paths
+        # libpq-fe.h locations
+        DEFS +=-I$(LOCALBASE)/include -I$(LOCALBASE)/pgsql/include \
+                -I$(SYSBASE)/include/pgsql -I$(SYSBASE)/include/postgresql \
+                -I$(SYSBASE)/include/postgresql/8.0
+        LIBS +=-L$(LOCALBASE)/lib -L$(LOCALBASE)/pgsql/lib \
+                -L$(LOCALBASE)/lib/pgsql -lpq
 endif
 
 endif
@@ -51,8 +51,9 @@ ifeq ($(INSTALL_FLAVOUR),kamailio)
 # extra install for kamailio
 
 install-pgsql-scripts: $(bin_prefix)/$(bin_dir)
-		PGSQLON=yes $(MAKE) -C ../../../utils/kamctl/ install-modules
+                PGSQLON=yes $(MAKE) -C ../../../utils/kamctl/ install-modules
 
 install-scripts: install-pgsql-scripts
 
-endif # INSTALL_FLAVOUR
+endif # INSTALL_FLAVOUR  
+

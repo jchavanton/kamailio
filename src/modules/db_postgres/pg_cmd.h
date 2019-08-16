@@ -3,14 +3,18 @@
  * Copyright (C) 2003 August.Net Services, LLC
  * Portions Copyright (C) 2005-2008 iptelorg GmbH
  *
- * This file is part of Kamailio, a free SIP server.
+ * This file is part of SER, a free SIP server.
  *
- * Kamailio is free software; you can redistribute it and/or modify it under the
+ * SER is free software; you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation; either version 2 of the License, or (at your option) any later
  * version
  *
- * Kamailio is distributed in the hope that it will be useful, but WITHOUT ANY
+ * For a license to use the ser software under conditions other than those
+ * described here, or to purchase support for this software, please contact
+ * iptel.org by e-mail at the following addresses: info@iptel.org
+ *
+ * SER is distributed in the hope that it will be useful, but WITHOUT ANY
  * WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
  * details.
@@ -44,12 +48,11 @@
 #include <stdarg.h>
 #include <libpq-fe.h>
 
-struct pg_params
-{
+struct pg_params {
 	int n;
-	const char **val;
-	int *len;
-	int *fmt;
+	const char** val;
+	int* len;
+	int* fmt;
 };
 
 
@@ -57,14 +60,13 @@ struct pg_params
  * This data structure extends the generic data structure db_cmd in the
  * database API with data specific to the postgresql driver.
  */
-struct pg_cmd
-{
+struct pg_cmd {
 	db_drv_t gen; /**< Generic part of the data structure (must be first */
-	char *name;   /**< Name of the prepared query on the server */
+	char* name;   /**< Name of the prepared query on the server */
 	str sql_cmd;  /**< Database command represented in SQL language */
 
 	struct pg_params params;
-	PGresult *types;
+	PGresult* types;
 };
 
 
@@ -75,7 +77,7 @@ struct pg_cmd
  * @param cmd A generic db_cmd structure to which the newly created pg_cmd
  *            structure will be attached.
  */
-int pg_cmd(db_cmd_t *cmd);
+int pg_cmd(db_cmd_t* cmd);
 
 
 /** The main execution function in postgres SER driver.
@@ -91,7 +93,7 @@ int pg_cmd(db_cmd_t *cmd);
  * @retval A negative number if the database server failed to execute command
  * @retval A positive number if there was an error on client side (SER)
  */
-int pg_cmd_exec(db_res_t *res, db_cmd_t *cmd);
+int pg_cmd_exec(db_res_t* res, db_cmd_t* cmd);
 
 
 /** Retrieves the first record from a result set received from PostgreSQL server.
@@ -105,7 +107,7 @@ int pg_cmd_exec(db_res_t *res, db_cmd_t *cmd);
  * @retval 1 If the result is empty.
  * @retval A negative number on error.
  */
-int pg_cmd_first(db_res_t *res);
+int pg_cmd_first(db_res_t* res);
 
 
 /** Retrieves the next record from a result set received from PostgreSQL server.
@@ -119,7 +121,7 @@ int pg_cmd_first(db_res_t *res);
  * @retval 1 If there are no more records in the result.
  * @retval A negative number on error.
  */
-int pg_cmd_next(db_res_t *res);
+int pg_cmd_next(db_res_t* res);
 
 
 /** Retrieves the value of an db_cmd option.
@@ -132,7 +134,7 @@ int pg_cmd_next(db_res_t *res);
  * @retval A positive number of the option is not supported/implemented.
  * @retval A negative number on error.
  */
-int pg_getopt(db_cmd_t *cmd, char *optname, va_list ap);
+int pg_getopt(db_cmd_t* cmd, char* optname, va_list ap);
 
 
 /** Sets the value of an db_cmd option.
@@ -145,6 +147,6 @@ int pg_getopt(db_cmd_t *cmd, char *optname, va_list ap);
  * @retval A positive number of the option is not supported/implemented.
  * @retval A negative number on error.
  */
-int pg_setopt(db_cmd_t *cmd, char *optname, va_list ap);
+int pg_setopt(db_cmd_t* cmd, char* optname, va_list ap);
 
 #endif /* _PG_CMD_H */

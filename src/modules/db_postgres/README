@@ -26,8 +26,6 @@ Greg Fausak
               3.1. retries (integer)
               3.2. timeout (integer)
               3.3. tcp_keepalive (integer)
-              3.4. lockset (integer)
-              3.5. bytea_output_escape (integer)
 
         4. Functions
 
@@ -36,8 +34,6 @@ Greg Fausak
    1.1. Set retries parameter
    1.2. Set timeout parameter
    1.3. Set tcp_keepalive parameter
-   1.4. Set lockset parameter
-   1.5. Set bytea_output_escape parameter
 
 Chapter 1. Admin Guide
 
@@ -54,8 +50,6 @@ Chapter 1. Admin Guide
         3.1. retries (integer)
         3.2. timeout (integer)
         3.3. tcp_keepalive (integer)
-        3.4. lockset (integer)
-        3.5. bytea_output_escape (integer)
 
    4. Functions
 
@@ -87,16 +81,14 @@ Chapter 1. Admin Guide
    3.1. retries (integer)
    3.2. timeout (integer)
    3.3. tcp_keepalive (integer)
-   3.4. lockset (integer)
-   3.5. bytea_output_escape (integer)
 
 3.1. retries (integer)
 
-   How many retries to attempt to reconnect if connection to Postgres
+   How many retries to attept to reconnect if connection to Postgres
    server becomes broken.
 
-   Default value is 2 (that means three attempts to submit the query,
-   first will trigger the connection error and two more (the value of this
+   Default value is 2 (that means three attepts to submit the query, first
+   will triger the connection error and two more (the value of this
    parameter) after resetting the connection).
 
    Example 1.1. Set retries parameter
@@ -133,30 +125,6 @@ modparam("db_postgres", "timeout", 10)
    Example 1.3. Set tcp_keepalive parameter
 ...
 modparam("db_postgres", "tcp_keepalive", 600)
-...
-
-3.4. lockset (integer)
-
-   The value is used as power of two to compute the size of the lock set
-   needed to implement the equivalent of REPLACE SQL statement.
-
-   Default value is 4 (lock set size is 16).
-
-   Example 1.4. Set lockset parameter
-...
-modparam("db_postgres", "lockset", 6)
-...
-
-3.5. bytea_output_escape (integer)
-
-   Control if the module should request escaping the output for bytea
-   fields.
-
-   Default value is 1 (do the escape).
-
-   Example 1.5. Set bytea_output_escape parameter
-...
-modparam("db_postgres", "bytea_output_escape", 0)
 ...
 
 4. Functions

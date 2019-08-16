@@ -1,4 +1,6 @@
 /*
+ * $Id$
+ *
  * Copyright (C) 2007 1&1 Internet AG
  *
  * This file is part of Kamailio, a free SIP server.
@@ -27,10 +29,8 @@
 #ifndef KM_VAL_H
 #define KM_VAL_H
 
-int db_postgres_str2val(
-		const db_type_t _t, db_val_t *_v, const char *_s, const int _l);
+int db_postgres_str2val(const db_type_t _t, db_val_t* _v, const char* _s, const int _l);
 
-int db_postgres_val2str(
-		const db1_con_t *_con, const db_val_t *_v, char *_s, int *_len);
+int db_postgres_val2str(const db1_con_t* _con, const db_val_t* _v, char* _s, int* _len);
 
 #endif
