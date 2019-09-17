@@ -47,6 +47,15 @@
 
 MODULE_VERSION
 
+static int fixup_rms_bridge(void **param, int param_no)                    
+{
+         if(param_no == 1 || param_no == 2)
+              return fixup_spve_null(param, 1);
+         LM_ERR("invalid parameter count [%d]\n", param_no);
+         return -1;
+}
+
+
 static tr_export_t mod_trans[] = {
 	{ {"s", sizeof("s")-1}, /* string class */
 		tr_parse_string },
@@ -569,7 +578,8 @@ static cmd_export_t cmds[]={
 		fixup_free_pvar_null,
 		ANY_ROUTE},
 	{"xavp_params_explode", (cmd_function)w_xavp_params_explode,
-		2, fixup_spve_spve, fixup_free_spve_spve,
+		// 2, fixup_spve_spve, fixup_free_spve_spve,
+		2, fixup_rms_bridge, 0,
 		ANY_ROUTE},
 	{"xavp_params_implode", (cmd_function)w_xavp_params_implode,
 		2, fixup_spve_str, fixup_free_spve_str,
@@ -798,7 +808,8 @@ static int w_xavp_params_explode(sip_msg_t *msg, char *pparams, char *pxname)
 	str sparams;
 	str sxname;
 
-	if(fixup_get_svalue(msg, (gparam_t*)pparams, &sparams)!=0) {
+	if(get_str_fparam(&sparams, msg, (gparam_p)pparams) != 0) {
+	// if(fixup_get_svalue(msg, (gparam_t*)pparams, &sparams)!=0) {
 		LM_ERR("cannot get the params\n");
 		return -1;
 	}
