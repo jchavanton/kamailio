@@ -47,8 +47,9 @@
 
 MODULE_VERSION
 
-static int fixup_rms_bridge(void **param, int param_no)                    
+static int fixup_custom(void **param, int param_no)                    
 {
+         LM_ERR("parameter [%d]\n", param_no);
          if(param_no == 1 || param_no == 2)
               return fixup_spve_null(param, 1);
          LM_ERR("invalid parameter count [%d]\n", param_no);
@@ -579,7 +580,7 @@ static cmd_export_t cmds[]={
 		ANY_ROUTE},
 	{"xavp_params_explode", (cmd_function)w_xavp_params_explode,
 		// 2, fixup_spve_spve, fixup_free_spve_spve,
-		2, fixup_rms_bridge, 0,
+		2, fixup_custom, 0,
 		ANY_ROUTE},
 	{"xavp_params_implode", (cmd_function)w_xavp_params_implode,
 		2, fixup_spve_str, fixup_free_spve_str,
@@ -805,8 +806,8 @@ static int ki_xavp_print(sip_msg_t* msg)
  */
 static int w_xavp_params_explode(sip_msg_t *msg, char *pparams, char *pxname)
 {
-	str sparams;
-	str sxname;
+	str sparams = {NULL, 0};
+	str sxname = {NULL, 0};
 
 	if(get_str_fparam(&sparams, msg, (gparam_p)pparams) != 0) {
 	// if(fixup_get_svalue(msg, (gparam_t*)pparams, &sparams)!=0) {
