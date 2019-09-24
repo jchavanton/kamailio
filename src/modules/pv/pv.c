@@ -831,7 +831,7 @@ static int w_xavp_copy(sip_msg_t *msg, char *_src_name, char *_src_idx, char *_d
 		}
 	} else {
 		LM_DBG("xavp_copy(append): $xavp(%.*s[%d]) >> $xavp(%.*s)\n", src_name.len, src_name.s, src_idx, dst_name.len, dst_name.s);
-		if(xavp_add_after(new_xavp, dst_xavp)<0) {
+		if(xavp_add_last(new_xavp, &dst_xavp)<0) {
 			LM_ERR("error appending new xavp\n");
 			xavp_destroy_list(&dst_xavp);
 			return -1;
