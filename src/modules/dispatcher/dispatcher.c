@@ -172,7 +172,6 @@ static int w_ds_list_exist(struct sip_msg*, char*, char*);
 static int w_ds_reload(struct sip_msg* msg, char*, char*);
 
 static int fixup_ds_is_from_list(void** param, int param_no);
-static int fixup_ds_list_exist(void** param,int param_no);
 
 static void destroy(void);
 
@@ -216,9 +215,9 @@ static cmd_export_t cmds[]={
 	{"ds_is_from_list",  (cmd_function)w_ds_is_from_list3, 3,
 		fixup_ds_is_from_list, 0, ANY_ROUTE},
 	{"ds_list_exist",  (cmd_function)w_ds_list_exist, 1,
-		fixup_ds_list_exist, 0, ANY_ROUTE},
+		fixup_var_int_1, 0, ANY_ROUTE},
 	{"ds_list_exists",  (cmd_function)w_ds_list_exist, 1,
-		fixup_ds_list_exist, 0, ANY_ROUTE},
+		fixup_var_int_1, 0, ANY_ROUTE},
 	{"ds_load_unset",    (cmd_function)w_ds_load_unset,   0,
 		0, 0, ANY_ROUTE},
 	{"ds_load_update",   (cmd_function)w_ds_load_update,  0,
@@ -1018,12 +1017,6 @@ static int w_ds_list_exist(struct sip_msg *msg, char *param, char *p2)
 static int ki_ds_list_exists(struct sip_msg *msg, int set)
 {
 	return ds_list_exist(set);
-}
-
-static int fixup_ds_list_exist(void **param, int param_no)
-{
-	return fixup_igp_null(param, param_no);
-	return 0;
 }
 
 static int ds_parse_reply_codes()
