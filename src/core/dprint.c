@@ -50,14 +50,26 @@ void km_log_func_set(km_log_f f)
 }
 
 
-// struct timeval start, stop;
-int latency_stop_check(struct timeval *start, const char *tag) {
+// LATENCY REPORTING
+void latency_check(latency_logs_t *l, const char *tag) {
 	struct timeval stop;
+	if (l->done) return;
 	gettimeofday(&stop, NULL);
-	int latency_ms = (stop.tv_sec - start->tv_sec)*1000 + (stop.tv_usec - start->tv_usec)/1000;
-	LM_WARN("latency_check:(%s)[%dms]\n", tag, latency_ms);
-	return 1;
+	int latency_ms = (stop.tv_sec - l->start.tv_sec)*1000 + (stop.tv_usec - l->start.tv_usec)/1000;
+	if (latency_ms >= l->ms) {
+		printf("latency_check:(%s)[%dms]\n", tag, latency_ms);
+		l->done = 1;
+	}
 }
+
+void latency_check_init(latency_logs_t *l) {
+	l->ms = 100;
+	l->done = 0;
+	gettimeofday(&l->start, NULL);
+}
+// LATENCY REPORTING
+
+
 
 
 #ifndef NO_SIG_DEBUG
