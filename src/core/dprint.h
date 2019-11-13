@@ -35,6 +35,10 @@
 #include "compiler_opt.h"
 #include "cfg_core.h"
 
+// LATENCY MONITORING
+#include <sys/time.h>
+int latency_stop_check(struct timeval *start, const char *tag);
+
 
 /** if defined the function name will also be logged. */
 #ifdef NO_LOG_FUNC_NAME

@@ -49,6 +49,17 @@ void km_log_func_set(km_log_f f)
 	_km_log_func = f;
 }
 
+
+// struct timeval start, stop;
+int latency_stop_check(struct timeval *start, const char *tag) {
+	struct timeval stop;
+	gettimeofday(&stop, NULL);
+	int latency_ms = (stop.tv_sec - start->tv_sec)*1000 + (stop.tv_usec - start->tv_usec)/1000;
+	LM_WARN("latency_check:(%s)[%dms]\n", tag, latency_ms);
+	return 1;
+}
+
+
 #ifndef NO_SIG_DEBUG
 /* signal protection: !=0 when LOG/DBG/... are printing */
 volatile int dprint_crit = 0; 
