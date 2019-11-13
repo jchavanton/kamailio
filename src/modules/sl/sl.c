@@ -246,6 +246,15 @@ static int w_sl_reply_error( struct sip_msg* msg, char* str, char* str2)
 	return sl_reply_error( msg );
 }
 
+
+// struct timeval start, stop;
+inline void latency_stop_check(struct timeval *start, const char *tag) {
+	struct timeval stop;
+	gettimeofday(&stop, NULL);
+	int latency_ms = (stop.tv_sec - start->tv_sec)*1000 + (stop.tv_usec - start->tv_usec)/1000;
+	LM_WARN("latency_check:(%s)[%dms]\n", tag, latency_ms);
+}
+
 /**
  * @brief send stateful reply if transaction was created
  *
@@ -263,6 +272,7 @@ int send_reply(struct sip_msg *msg, int code, str *reason)
 	struct cell *t;
 	int ret = 1;
 
+
 	if(msg->msg_flags & FL_MSG_NOREPLY) {
 		LM_INFO("message marked with no-reply flag\n");
 		return -2;
@@ -279,6 +289,10 @@ int send_reply(struct sip_msg *msg, int code, str *reason)
 		}
 	}
 
+	// start
+	struct timeval start;
+	gettimeofday(&start, NULL);
+	// start
 	if(sl_bind_tm!=0 && tmb.t_gett!=0)
 	{
 		t = tmb.t_gett();
@@ -293,6 +307,7 @@ int send_reply(struct sip_msg *msg, int code, str *reason)
 			goto done;
 		}
 	}
+	latency_stop_check(&start, __FUNCTION__);
 
 	if(msg->first_line.type==SIP_REPLY)
 		goto error;
