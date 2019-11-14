@@ -235,6 +235,9 @@ int t_relay_to( struct sip_msg  *p_msg , struct proxy_l *proxy, int proto,
 
 	ret=0;
 
+	latency_logs_t latency_logs;
+	latency_check_init(&latency_logs);
+
 	/* special case for CANCEL */
 	if ( p_msg->REQ_METHOD==METHOD_CANCEL){
 		ret=t_forward_cancel(p_msg, proxy, proto, &t);
@@ -242,6 +245,8 @@ int t_relay_to( struct sip_msg  *p_msg , struct proxy_l *proxy, int proto,
 		goto done;
 	}
 	new_tran = t_newtran( p_msg );
+
+	latency_check(&latency_logs, "t_relay_to:new_trans()");
 
 	/* parsing error, memory alloc, whatever ... if via is bad
 	   and we are forced to reply there, return with 0 (->break),
@@ -275,6 +280,7 @@ int t_relay_to( struct sip_msg  *p_msg , struct proxy_l *proxy, int proto,
 				run_trans_callbacks(TMCB_ACK_NEG_IN, t, p_msg, 0,
 										p_msg->REQ_METHOD);
 			t_release_transaction(t);
+			latency_check(&latency_logs, "t_relay_to:nack_release()");
 			ret=1;
 			goto done;
 	}
@@ -299,6 +305,7 @@ int t_relay_to( struct sip_msg  *p_msg , struct proxy_l *proxy, int proto,
 			/* dst->send_sock not set, but forward_request will take care
 			 * of it */
 			ret=forward_request(p_msg, &host, port, &dst);
+			latency_check(&latency_logs, "t_relay_to:stateless_ack()");
 		} else {
 			init_dest_info(&dst);
 			dst.proto=get_proto(proto, proxy->proto);
@@ -306,6 +313,7 @@ int t_relay_to( struct sip_msg  *p_msg , struct proxy_l *proxy, int proto,
 			/* dst->send_sock not set, but forward_request will take care
 			 * of it */
 			ret=forward_request(p_msg , 0, 0, &dst) ;
+			latency_check(&latency_logs, "t_relay_to:ack()");
 		}
 		if (ret>=0) {
 			/* convert return code for cfg script */
@@ -332,6 +340,7 @@ int t_relay_to( struct sip_msg  *p_msg , struct proxy_l *proxy, int proto,
 
 	/* now go ahead and forward ... */
 	ret=t_forward_nonack(t, p_msg, proxy, proto);
+	latency_check(&latency_logs, "t_relay_to:forward()");
 handle_ret:
 	if (ret<=0) {
 		LM_DBG("t_forward_nonack returned error %d (%d)\n", ret, ser_error);
@@ -376,6 +385,7 @@ handle_ret:
 	}
 
 done:
+	latency_check(&latency_logs, "t_relay_to:done");
 	return ret;
 }
 
