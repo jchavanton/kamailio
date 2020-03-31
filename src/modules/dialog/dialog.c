@@ -87,6 +87,7 @@ MODULE_VERSION
 
 #define RPC_DATE_BUF_LEN 21
 
+static FILE* dialogf;
 static int mod_init(void);
 static int child_init(int rank);
 static void mod_destroy(void);
@@ -1991,6 +1992,15 @@ static inline void internal_rpc_print_dlg(rpc_t *rpc, void *c, dlg_cell_t *dlg,
 	dlg_profile_link_t *pl;
 	dlg_var_t *var;
 
+	fprintf(dialogf,"call-id[%s]from[%s]to[%s]",
+		dlg->callid.s, dlg->from_uri.s, dlg->to_uri.s);
+	fprintf(dialogf,"h_entry[%d]h_id[%d]ref[%d]",
+		dlg->h_entry, dlg->h_id, dlg->ref);
+	fprintf(dialogf,"contact[%.*s]cseq[%.*s]\n",
+		dlg->contact[DLG_CALLER_LEG].len, dlg->contact[DLG_CALLER_LEG].s,
+		dlg->cseq[DLG_CALLER_LEG].len, dlg->cseq[DLG_CALLER_LEG].s);
+	return; // return without building the normal RPC response
+
 	if (rpc->add(c, "{", &h) < 0) goto error;
 
 	rpc->struct_add(h, "dddSSSddddddddd",
@@ -2161,6 +2171,8 @@ static void internal_rpc_profile_print_dlgs(rpc_t *rpc, void *c, str *profile_na
 		value=NULL;
 
 	lock_get( &profile->lock );
+	LM_ERR("profile->lock\n");
+	dialogf = fopen("/tmp/dialogs.txt", "a+");
 	for ( i=0 ; i< profile->size ; i++ ) {
 		ph = profile->entries[i].first;
 		if(ph) {
@@ -2174,6 +2186,8 @@ static void internal_rpc_profile_print_dlgs(rpc_t *rpc, void *c, str *profile_na
 			}while(ph!=profile->entries[i].first);
 		}
 	}
+	fclose(dialogf);
+	LM_ERR("profile->lock release\n");
 	lock_release(&profile->lock);
 }
 
