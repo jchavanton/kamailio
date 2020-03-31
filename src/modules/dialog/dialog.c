@@ -87,6 +87,7 @@ MODULE_VERSION
 
 #define RPC_DATE_BUF_LEN 21
 
+static FILE* dialogf;
 static int mod_init(void);
 static int child_init(int rank);
 static void mod_destroy(void);
@@ -1983,6 +1984,7 @@ int mod_register(char *path, int *dlflags, void *p1, void *p2)
  * \param with_context if 1 then the dialog context will be also printed
  * \return 0 on success, -1 on failure
  */
+
 static inline void internal_rpc_print_dlg(rpc_t *rpc, void *c, dlg_cell_t *dlg,
 		int with_context)
 {
@@ -1991,6 +1993,14 @@ static inline void internal_rpc_print_dlg(rpc_t *rpc, void *c, dlg_cell_t *dlg,
 	dlg_profile_link_t *pl;
 	dlg_var_t *var;
 
+	fprintf(dialogf,"call-id[%s]from[%s]to[%s]",
+		dlg->callid.s, dlg->from_uri.s, dlg->to_uri.s); 
+	fprintf(dialogf,"h_entry[%d]h_id[%d]ref[%d]", 
+		dlg->h_entry, dlg->h_id, dlg->ref); 
+	fprintf(dialogf,"contact[%s]cseq[%s]\n",
+		dlg->contact[DLG_CALLER_LEG].s, dlg->cseq[DLG_CALLER_LEG].s); 
+
+	return;
 	if (rpc->add(c, "{", &h) < 0) goto error;
 
 	rpc->struct_add(h, "dddSSSddddddddd",
@@ -2042,12 +2052,12 @@ static inline void internal_rpc_print_dlg(rpc_t *rpc, void *c, dlg_cell_t *dlg,
 		rpc->struct_add(ssh, "S", var->key.s, &var->value);
 	}
 
-	if (with_context) {
-		rpc_cb.rpc = rpc;
-		rpc_cb.c = h;
-		run_dlg_callbacks( DLGCB_RPC_CONTEXT, dlg, NULL, NULL, DLG_DIR_NONE, (void *)&rpc_cb);
-	}
-
+//	if (with_context) {
+//		rpc_cb.rpc = rpc;
+//		rpc_cb.c = h;
+//		run_dlg_callbacks( DLGCB_RPC_CONTEXT, dlg, NULL, NULL, DLG_DIR_NONE, (void *)&rpc_cb);
+//	}
+//
 	return;
 error:
 	LM_ERR("Failed to add item to RPC response\n");
@@ -2161,6 +2171,8 @@ static void internal_rpc_profile_print_dlgs(rpc_t *rpc, void *c, str *profile_na
 		value=NULL;
 
 	lock_get( &profile->lock );
+	LM_ERR("profile->lock\n");
+	dialogf = fopen("/tmp/dialogs.txt", "a+"); 
 	for ( i=0 ; i< profile->size ; i++ ) {
 		ph = profile->entries[i].first;
 		if(ph) {
@@ -2174,6 +2186,8 @@ static void internal_rpc_profile_print_dlgs(rpc_t *rpc, void *c, str *profile_na
 			}while(ph!=profile->entries[i].first);
 		}
 	}
+	fclose(dialogf); 
+	LM_ERR("profile->lock release\n");
 	lock_release(&profile->lock);
 }
 
