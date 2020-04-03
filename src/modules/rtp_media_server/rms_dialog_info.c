@@ -17,7 +17,7 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
  */
-
+#include "../dialog/dlg_hash.h"
 #include "rtp_media_server.h"
 extern rms_dialog_info_t *rms_dialog_list;
 extern int in_rms_process;
@@ -54,8 +54,38 @@ int init_rms_dialog_list()
 	return 1;
 }
 
+
+// int rms_dialog_set_callee(struct dlg_cell* dlg, struct sip_msg *rpl, tm_cell_t *t, unsigned int leg, str *tag) {
+// 	if (populate_leg_info(dlg, rpl, t, DLG_CALLEE_LEG, tag) !=0) {
+// 		LM_ERR("could not add further info to the dialog\n");
+// 		return 0;
+// 	}
+// 	return 1;
+// }
+
+struct dlg_cell* rms_dlg_search(struct sip_msg *msg){
+	/* trying to get dialog */
+	struct dlg_cell* dlg = NULL;
+	if (dlg_api.get_dlg) {
+		dlg = dlg_api.get_dlg(msg);
+	}
+	if (dlg) {
+		LM_INFO("dialog found call-id[%.*s][%.*s][%.*s]local_ip[%.*s:%d]\n",
+				dlg->callid.len, dlg->callid.s,
+				dlg->tag[0].len, dlg->tag[0].s,
+				dlg->tag[1].len, dlg->tag[1].s,
+				dlg->bind_addr[0]->address_str.len, dlg->bind_addr[0]->address_str.s,
+				dlg->bind_addr[0]->port_no
+			);
+	} else {
+		LM_INFO("dialog not found !\n");
+	}
+	return NULL;
+}
+
 rms_dialog_info_t *rms_dialog_search(struct sip_msg *msg) // str *from_tag)
 {
+	rms_dlg_search(msg);
 	rms_dialog_info_t *si;
 	str callid = msg->callid->body;
 	if(parse_from_header(msg) < 0) {
@@ -188,6 +218,32 @@ error:
 	return NULL;
 }
 
+
+int rms_dialog_info_set_leg(struct dlg_cell *dlg, str* tag, str *rr_set, str* contact, str *cseq, unsigned int leg) {
+	dlg_api.dlg_set_leg_info(dlg, tag, rr_set, contact, cseq, leg);
+	return 1;
+}
+/*
+cseq
+contact
+record-route
+
+int populate_leg_info( struct dlg_cell *dlg, struct sip_msg *msg,
+struct cell* t, unsigned int leg, str *tag)
+
+if (dlg_set_leg_info( dlg, tag, &rr_set, &contact, &cseq, leg)!=0)
+
+if (msg->record_route) {
+	if (print_rr_body(msg->record_route, &rr_set, leg, &skip_recs) != 0) {
+        	LM_ERR("failed to print route records \n");
+                goto error0;
+        }
+} else {
+	rr_set.s = 0;
+	rr_set.len = 0;
+}
+*/
+
 int rms_dialog_init() {
 	if(load_dlg_api(&dlg_api) != 0) {
 		LM_ERR("can't load dialog API\n");
@@ -195,6 +251,7 @@ int rms_dialog_init() {
 	}
 	return 1;
 }
+
 
 rms_dialog_info_t *rms_dialog_new(struct sip_msg *msg)
 {
@@ -205,13 +262,16 @@ rms_dialog_info_t *rms_dialog_new(struct sip_msg *msg)
 		return NULL;
 
 	/* trying to get dialog */
-	if (dlg_api.get_dlg) {                                                                                                                                                                                                                                                     		dlg = dlg_api.get_dlg(msg);
+	if (dlg_api.get_dlg) {
+		dlg = dlg_api.get_dlg(msg);
 	}
 	if (dlg) {
-		LM_INFO("dialog found call-id[%.*s][%.*s][%.*s]\n",
+		LM_INFO("dialog found call-id[%.*s][%.*s][%.*s]local_ip[%.*s:%d]\n",
 				dlg->callid.len, dlg->callid.s,
 				dlg->tag[0].len, dlg->tag[0].s,
-				dlg->tag[1].len, dlg->tag[1].s
+				dlg->tag[1].len, dlg->tag[1].s,
+				dlg->bind_addr[0]->address_str.len, dlg->bind_addr[0]->address_str.s,
+				dlg->bind_addr[0]->port_no
 			);
 	} else {
 		LM_INFO("dialog not found !\n");

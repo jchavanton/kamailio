@@ -17,7 +17,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301 USA
  */
-
 #include "rtp_media_server.h"
 #include "../../core/fmsg.h"
 
@@ -409,7 +408,7 @@ static int rms_answer_call(
 		LM_ERR("can not find from tag\n");
 		return 0;
 	}
-	LM_INFO("ip[%s]\n", di->local_ip.s);
+	LM_INFO("ip[%s]1\n", di->local_ip.s);
 	sdp_info->local_ip.s = di->local_ip.s;
 	sdp_info->local_ip.len = di->local_ip.len;
 
@@ -422,6 +421,8 @@ static int rms_answer_call(
 	if(!cell)
 		cell = tmb.t_gett();
 
+	LM_INFO("ip[%s]2\n", di->local_ip.s);
+	// setflag(cell->uas.request, 4);
 	if(cell->uas.request) {
 		if(!tmb.t_reply_with_body(cell, 200, &reason, &sdp_info->new_body,
 				   &contact_hdr, &di->local_tag)) {
@@ -432,6 +433,13 @@ static int rms_answer_call(
 		di->state = RMS_ST_CONNECTED;
 	} else {
 		LM_INFO("no request found\n");
+	}
+	LM_INFO("ip[%s]3\n", di->local_ip.s);
+	struct dlg_cell* dlg = rms_dlg_search(cell->uas.request);
+	LM_INFO("ip[%s]4\n", di->local_ip.s);
+	if (dlg) {
+		LM_INFO("tag[%s]contact[%s]cseq[%s]\n", di->local_tag.s, contact_hdr.s, dlg->cseq[DLG_CALLEE_LEG].s);
+		rms_dialog_info_set_leg(dlg, &di->local_tag, NULL, &contact_hdr, &dlg->cseq[DLG_CALLEE_LEG], 1);	
 	}
 	return 1;
 }

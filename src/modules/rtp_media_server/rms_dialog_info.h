@@ -23,6 +23,7 @@
 // #include "rtp_media_server.h"
 #include "../dialog/dlg_load.h"
 #include "../dialog/dlg_hash.h"
+#include "../dialog/dlg_handlers.h"
 #include "rms_media.h"
 //typedef struct rms_action rms_action_t;
 typedef struct rms_dialog_info rms_dialog_info_t;
@@ -73,6 +74,8 @@ rms_dialog_info_t *rms_dialog_new(struct sip_msg *msg);
 rms_dialog_info_t *rms_dialog_new_bleg(struct sip_msg *msg);
 int rms_dialogs_dump_f(struct sip_msg *msg, char *param1, char *param2);
 rms_dialog_info_t *rms_get_dialog_list(void);
+int rms_dialog_info_set_leg(struct dlg_cell *dlg, str* tag, str *rr_set, str* contact, str *cseq, unsigned int leg); 
+struct dlg_cell* rms_dlg_search(struct sip_msg *msg);
 
 typedef struct ms_res
 {

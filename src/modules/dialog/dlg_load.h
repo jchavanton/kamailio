@@ -42,13 +42,15 @@ typedef struct dlg_cell *(*get_dlg_f)(struct sip_msg *msg);
 
 typedef void (*release_dlg_f)(struct dlg_cell *dlg);
 
+typedef void (*dlg_set_leg_info_f)(struct dlg_cell* dlg, str *tag, str *rr_set,  str *contact, str *cseq,  unsigned int leg);
 struct dlg_binds {
 	register_dlgcb_f  register_dlgcb;
 	terminate_dlg_f terminate_dlg;
-    set_dlg_variable_f set_dlg_var;
+	set_dlg_variable_f set_dlg_var;
 	get_dlg_variable_f get_dlg_var;
 	get_dlg_f          get_dlg;
 	release_dlg_f      release_dlg;
+	dlg_set_leg_info_f dlg_set_leg_info;
 };
 
 

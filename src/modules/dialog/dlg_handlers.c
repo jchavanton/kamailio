@@ -438,12 +438,12 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 	if(dlg==0)
 		return;
 
-	if (rpl != FAKED_REPLY) {
+//	if (rpl != FAKED_REPLY) {
 		if(parse_headers(rpl, HDR_EOH_F, 0) < 0) {
 			LM_ERR("failed to parse the reply headers\n");
 			goto done_early;
 		}
-	}
+//	}
 
 	unref = 0;
 	if (type & (TMCB_RESPONSE_IN|TMCB_ON_FAILURE)) {
@@ -490,7 +490,7 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 	old_state!=DLG_STATE_CONFIRMED_NA && old_state!=DLG_STATE_CONFIRMED ) {
 		LM_DBG("dialog %p confirmed (ACK pending)\n",dlg);
 
-		 if (rpl != FAKED_REPLY) {
+		 //if (rpl != FAKED_REPLY) {
 			/* get to tag*/
 			if ( !rpl->to && ((parse_headers(rpl, HDR_TO_F,0)<0)
 						|| !rpl->to) ) {
@@ -510,9 +510,9 @@ static void dlg_onreply(struct cell* t, int type, struct tmcb_params *param)
 			if (populate_leg_info( dlg, rpl, t, DLG_CALLEE_LEG, &tag) !=0) {
 				LM_ERR("could not add further info to the dialog\n");
 			}
-		 } else {
-			 LM_ERR("Faked reply!\n");
-		 }
+		 //} else {
+		 //        LM_ERR("Faked reply!\n");
+		 //}
 
 		/* set start time */
 		dlg->start_ts = (unsigned int)(time(0));
