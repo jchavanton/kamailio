@@ -6,4 +6,7 @@ auto_gen=
 NAME=mqueue.so
 LIBS=
 
+SERLIBPATH=../../lib
+SER_LIBS+=$(SERLIBPATH)/srdb1/srdb1
+SER_LIBS+=$(SERLIBPATH)/srutils/srutils
 include ../../Makefile.modules
