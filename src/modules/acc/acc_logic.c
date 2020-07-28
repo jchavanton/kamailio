@@ -372,6 +372,9 @@ void acc_onreq( struct cell* t, int type, struct tmcb_params *ps )
 	int tmcb_types;
 	int is_invite;
 
+	LM_ERR("is_mc_on: %d\n", is_mc_on(ps->req));
+	LM_ERR("is_acc_on: %d\n", is_acc_on(ps->req));
+	LM_ERR("is_acc_prepare_on: %d\n", is_acc_prepare_on(ps->req));
 	if ( ps->req && !skip_cancel(ps->req) &&
 			( is_acc_on(ps->req) || is_mc_on(ps->req)
 				|| is_acc_prepare_on(ps->req) ) ) {
@@ -512,7 +515,7 @@ static inline void on_missed(struct cell *t, struct sip_msg *req,
 		acc_db_request( req );
 		flags_to_reset |= 1 << db_missed_flag;
 	}
-
+	LM_ERR("run extra acc engines\n");
 	/* run extra acc engines */
 	acc_run_engines(req, 1, &flags_to_reset);
 
