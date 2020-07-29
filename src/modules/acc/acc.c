@@ -578,7 +578,7 @@ int acc_run_engines(struct sip_msg *msg, int type, int *reset)
 	inf.tarr = type_arr;
 	inf.leg_info = leg_info;
 	while(e) {
-		LM_ERR("type[%d] acc_flag[%d|%d] missed_flag[%d|%d]\n", type, e->acc_flag, isflagset(msg, e->acc_flag), e->missed_flag, isflagset(msg, e->missed_flag));
+		LM_ERR("[%s]type[%d] acc_flag[%d|%d] missed_flag[%d|%d]\n", e->name, type, e->acc_flag, isflagset(msg, e->acc_flag), e->missed_flag, isflagset(msg, e->missed_flag));
 		if(e->flags & 1) {
 			if((type==0) && isflagset(msg, e->acc_flag) == 1) {
 				LM_DBG("acc event for engine: %s\n", e->name);
