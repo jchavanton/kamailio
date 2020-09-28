@@ -2574,6 +2574,8 @@ int ds_mark_dst(struct sip_msg *msg, int state)
 }
 
 static inline void latency_stats_update(ds_latency_stats_t *latency_stats, int latency) {
+	int training_count = 10000;
+
 	/* after 2^21 ~24 days at 1s interval, the average becomes a weighted average */
 	if (latency_stats->count < 2097152) {
 		latency_stats->count++;
