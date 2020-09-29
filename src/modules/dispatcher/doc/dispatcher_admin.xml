@@ -1263,6 +1263,34 @@ modparam("dispatcher", "reload_delta", 1)
 			</listitem>
 			<listitem>
 				<para>
+				<quote>13</quote> - latency optimized dispatching
+				</para>
+				<para>
+				- The algorithm will load balance using round-robin prioritizing the gateways with the highest priority.
+				</para>
+				<para>
+				- If ds_ping_latency_stats is active the algorithm be able to adjust the priority of the gateway automaticaly,
+				the priority will be lowered by 1 point every time the latency ms is as high as the priority.
+				</para>
+				<example>
+				<title><function>latency_optimized_dispatching</function> usage</title>
+				<programlisting format="linespecific">
+Using this simple formula : ADJUSTED_PRIORITY = PRIORITY - (ESTIMATED_LATENCY/PRIORITY)
+
+GATEWAY | PRIORITY | ESTIMATED | ADJUSTED | LOAD
+   #    |          |  LATENCY  | PRIORITY | DISTRIBUTION
+   1    |    30    |    21     |    30    | 33%
+   2    |    30    |    91     |    27    | 0%
+   3    |    30    |    61     |    28    | 0%
+   4    |    30    |    19     |    30    | 33%
+   5    |    30    |    32     |    29    | 0%
+   6    |    30    |    0      |    30    | 33%
+   7    |    30    |    201    |    24    | 0%
+				</programlisting>
+				</example>
+			</listitem>
+			<listitem>
+				<para>
 				<quote>X</quote> - if the algorithm is not implemented, the
 				first entry in set is chosen.
 				</para>
