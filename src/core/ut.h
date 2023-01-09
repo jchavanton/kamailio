@@ -655,6 +655,14 @@ static inline int str2ulong(str* _s, unsigned long* _r)
 }
 
 /*
+ * Convert an str to unsigned long long
+ */
+static inline int str2ulonglong(str* _s, unsigned long long* _r)
+{
+	str2unval(_s, _r);
+}
+
+/*
  * Convert an str to unsigned integer
  */
 static inline int str2int(str* _s, unsigned int* _r)

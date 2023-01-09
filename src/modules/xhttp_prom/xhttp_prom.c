@@ -87,10 +87,13 @@ static int w_prom_histogram_observe_l2(struct sip_msg* msg, char *pname, char* p
 static int w_prom_histogram_observe_l3(struct sip_msg* msg, char *pname, char* pnumber, char *l1, char *l2, char *l3);
 static int fixup_metric_reset(void** param, int param_no);
 static int fixup_counter_inc(void** param, int param_no);
+static int fixup_free_counter_inc(void** param, int param_no);
 
 int prom_counter_param(modparam_t type, void *val);
 int prom_gauge_param(modparam_t type, void *val);
 int prom_histogram_param(modparam_t type, void *val);
+
+unsigned long long increment_value = 0;
 
 /**
  * @brief The context of the xhttp_prom request being processed.
@@ -144,13 +147,13 @@ static cmd_export_t cmds[] = {
 	{"prom_gauge_reset", (cmd_function)w_prom_gauge_reset_l3, 4, fixup_metric_reset,
 	 0, ANY_ROUTE},
 	{"prom_counter_inc", (cmd_function)w_prom_counter_inc_l0, 2, fixup_counter_inc,
-	 0, ANY_ROUTE},
+	 fixup_free_counter_inc, ANY_ROUTE},
 	{"prom_counter_inc", (cmd_function)w_prom_counter_inc_l1, 3, fixup_counter_inc,
-	 0, ANY_ROUTE},
+	 fixup_free_counter_inc, ANY_ROUTE},
 	{"prom_counter_inc", (cmd_function)w_prom_counter_inc_l2, 4, fixup_counter_inc,
-	 0, ANY_ROUTE},
+	 fixup_free_counter_inc, ANY_ROUTE},
 	{"prom_counter_inc", (cmd_function)w_prom_counter_inc_l3, 5, fixup_counter_inc,
-	 0, ANY_ROUTE},
+	 fixup_free_counter_inc, ANY_ROUTE},
 	{"prom_gauge_set", (cmd_function)w_prom_gauge_set_l0, 2, fixup_metric_reset,
 	 0, ANY_ROUTE},
 	{"prom_gauge_set", (cmd_function)w_prom_gauge_set_l1, 3, fixup_metric_reset,
@@ -942,21 +945,31 @@ static int w_prom_gauge_reset_l3(struct sip_msg* msg, char* pname, char *l1, cha
 
 static int fixup_counter_inc(void** param, int param_no)
 {
-	if (param_no == 1 || param_no == 2) {
-		return fixup_spve_igp(param, param_no);
+	if (param_no == 1) {
+		return fixup_spve_null(param, param_no);
+	} else if (param_no ==2) {
+		str s;
+		s.s = (char*)*param;
+		s.len = strlen(s.s);
+		if (str2ulonglong(&s, &increment_value)==0) {
+			return 0;
+		} else {
+			LM_ERR("bad number <%s>\n", (char *)(*param));
+		}
+		return -1;
 	} else {
 		return fixup_spve_null(param, 1);
 	}
 }
 
-/* static int fixup_free_counter_inc(void** param, int param_no) */
-/* { */
-/* 	if (param_no == 1 || param_no == 2) { */
-/* 		return fixup_free_spve_igp(param, param_no); */
-/* 	} else { */
-/* 		return fixup_free_spve_null(param, 1); */
-/* 	} */
-/* } */
+static int fixup_free_counter_inc(void** param, int param_no)
+{
+	if (param_no == 1 || param_no == 2) {
+		return fixup_free_spve_igp(param, param_no);
+	} else {
+		return fixup_free_spve_null(param, 1);
+	}
+}
 
 /**
  * @brief Add an integer to a counter (No labels).
@@ -1119,7 +1132,7 @@ static int ki_xhttp_prom_counter_inc_l3(struct sip_msg* msg, str *s_name, int nu
 static int w_prom_counter_inc(struct sip_msg* msg, char *pname, char* pnumber,
 							  char *l1, char *l2, char *l3)
 {
-	int number;
+	unsigned long long int number = increment_value;
 	str s_name;
 
 	if (pname == NULL || pnumber == 0) {
@@ -1131,15 +1144,12 @@ static int w_prom_counter_inc(struct sip_msg* msg, char *pname, char* pnumber,
 		LM_ERR("No counter name\n");
 		return -1;
 	}
+
 	if (s_name.s == NULL || s_name.len == 0) {
 		LM_ERR("Invalid name string\n");
 		return -1;
 	}
 
-	if(get_int_fparam(&number, msg, (gparam_p)pnumber)!=0) {
-		LM_ERR("no number\n");
-		return -1;
-	}
 	if(number < 0) {
 		LM_ERR("invalid negative number parameter\n");
 		return -1;
@@ -1191,11 +1201,11 @@ static int w_prom_counter_inc(struct sip_msg* msg, char *pname, char* pnumber,
 						   (l2!=NULL)?&l2_str:NULL,
 						   (l3!=NULL)?&l3_str:NULL
 						 )) {
-		LM_ERR("Cannot add number: %d to counter: %.*s\n", number, s_name.len, s_name.s);
+		LM_ERR("Cannot add number: %llu to counter: %.*s\n", number, s_name.len, s_name.s);
 		return -1;
 	}
 
-	LM_DBG("Added %d to counter %.*s\n", number, s_name.len, s_name.s);
+	LM_DBG("Added %llu to counter %.*s\n", number, s_name.len, s_name.s);
 	return 1;
 }
 

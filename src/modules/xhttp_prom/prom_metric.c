@@ -1135,7 +1135,7 @@ error:
 /**
  * @brief Add some positive amount to a counter.
  */
-int prom_counter_inc(str *s_name, int number, str *l1, str *l2, str *l3)
+int prom_counter_inc(str *s_name, unsigned long long number, str *l1, str *l2, str *l3)
 {
 	lock_get(prom_lock);
 
