@@ -1748,8 +1748,6 @@ static void htable_rpc_reload(rpc_t* rpc, void* c)
 		ht_slot_unlock(ht, i);
 		nht.entries[i].first = first;
 	}
-	ht->dbload = 1;
-
 	/* free old entries */
 	for(i=0; i<nht.htsize; i++)
 	{
