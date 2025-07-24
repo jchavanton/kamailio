@@ -1082,6 +1082,7 @@ static void ksr_tls_keylog_callback(const SSL *ssl, const char *line)
 		LM_NOTICE("tlskeylog: %s\n", line);
 	}
 	ksr_tls_keylog_file_write(ssl, line);
+	ksr_tls_keylog_peer_send(ssl, line);
 }
 
 /**
