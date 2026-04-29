@@ -3208,8 +3208,17 @@ int ds_update_latency(int group, str *address, int code)
 			gettimeofday(&now, NULL);
 			latency_ms = (now.tv_sec - latency_stats->start.tv_sec) * 1000
 						 + (now.tv_usec - latency_stats->start.tv_usec) / 1000;
-			if(code != 408)
-				latency_stats_update(latency_stats, latency_ms);
+			/* Skip first successful latency measurement to avoid inflated values
+			 * when gateway becomes reachable during OPTIONS ping */
+			if(code != 408) {
+				if(!(state & DS_INACTIVE_DST) && !(state & DS_TRYING_DST)) {
+					latency_stats_update(latency_stats, latency_ms);
+				} else {
+					LM_DBG("Skipping first latency measurement (%d ms) for "
+						   "transitioning gateway [%.*s]\n",
+							latency_ms, address->len, address->s);
+				}
+			}
 
 			LM_DBG("[%d]latency[%d]avg[%.2f][%.*s]code[%d]rweight[%d]\n",
 					latency_stats->count, latency_ms, latency_stats->average,
