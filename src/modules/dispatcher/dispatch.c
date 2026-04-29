@@ -3163,11 +3163,13 @@ void ds_init_congestion_control_state(congestion_control_state_t *cc)
 	cc->apply_rweights = 0;
 }
 
-int ds_update_latency(int group, str *address, int code)
+int ds_update_latency(int group, str *address, str *iuid, int code)
 {
 	int i = 0;
 	int state = 0;
 	ds_set_t *idx = NULL;
+	str *fmatch;
+	str *vmatch;
 	congestion_control_state_t cc;
 	ds_init_congestion_control_state(&cc);
 
@@ -3185,8 +3187,18 @@ int ds_update_latency(int group, str *address, int code)
 	while(i < idx->nr) {
 		ds_dest_t *ds_dest = &idx->dlist[i];
 		ds_latency_stats_t *latency_stats = &ds_dest->latency_stats;
-		if(ds_dest->uri.len == address->len
-				&& strncasecmp(ds_dest->uri.s, address->s, address->len) == 0) {
+		/* When iuid is provided, match the specific destination via its suid
+		 * so duplicate-URI rows (same gateway pinged from multiple sockets)
+		 * each get their own latency stats updated. */
+		if(iuid != NULL && iuid->s != NULL && iuid->len > 0) {
+			fmatch = &ds_dest->suid;
+			vmatch = iuid;
+		} else {
+			fmatch = &ds_dest->uri;
+			vmatch = address;
+		}
+		if(fmatch->len == vmatch->len
+				&& strncasecmp(fmatch->s, vmatch->s, vmatch->len) == 0) {
 			struct timeval now;
 			int latency_ms;
 			/* Destination address found, this is the gateway that was pinged. */
@@ -4010,8 +4022,12 @@ static void ds_options_callback(
 	uri.len = t->to_hdr.len - 8;
 	LM_DBG("OPTIONS-Request was finished with code %d (to %.*s, group %d)\n",
 			ps->code, uri.len, uri.s, group);
+
+	ds_extract_fromhdr_iuid(&t->from_hdr, &iuid);
+	LM_DBG("=== iuid: %.*s\n", iuid.len, iuid.s);
+
 	if(ds_ping_latency_stats) {
-		ds_update_latency(group, &uri, ps->code);
+		ds_update_latency(group, &uri, &iuid, ps->code);
 	}
 
 	memset(&rctx, 0, sizeof(ds_rctx_t));
@@ -4022,6 +4038,8 @@ static void ds_options_callback(
 			rctx.reason = ps->rpl->first_line.u.reply.reason;
 		}
 	}
+	rctx.setid = group;
+	ds_rctx_set_uri(&rctx, &uri);
 
 	/* Check if in the meantime someone disabled probing of the target
 	 * through RPC or reload */
