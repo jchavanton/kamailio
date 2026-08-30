@@ -316,6 +316,9 @@ static int tls_complete_init(struct tcp_connection *c)
 #endif
 	SSL_set_bio(data->ssl, data->rwbio, data->rwbio);
 	c->extra_data = data;
+	data->tcp_conn = c; /* used by ksr_tls_keylog_callback to emit the 5-tuple
+	                     * alongside the NSS key line; SSL_get_fd() cannot
+	                     * recover this because the BIO is memory-backed. */
 
 	/* link the extra data struct inside ssl connection*/
 	SSL_set_app_data(data->ssl, data);

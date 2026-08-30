@@ -65,6 +65,11 @@ typedef struct tls_extra_data
 	struct tls_rd_buf *enc_rd_buf;
 	unsigned int flags;
 	enum tls_conn_states state;
+	struct tcp_connection *tcp_conn; /* back-pointer for keylog callback so it
+	                                  * can read the peer 5-tuple; the SSL* has
+	                                  * no accessible fd because kamailio uses
+	                                  * a memory BIO (tls_BIO_new_mbuf), so
+	                                  * SSL_get_fd()/BIO_get_fd() both fail. */
 } tls_extra_data_t;
 
 
