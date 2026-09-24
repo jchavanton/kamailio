@@ -1177,8 +1177,17 @@ static int tls_server_name_cb(SSL *ssl, int *ad, void *private)
  *
  * Emits nothing when the tls_extra_data back-pointer to tcp_connection is
  * not populated (older callers) or the SSL has no app_data.
+ *
+ * Fills @buf with the formatted "# TUPLE ..." line (no trailing newline)
+ * and returns its length. Returns 0 when no tuple could be emitted (missing
+ * back-pointer or format error). Also mirrors the line to syslog when MLOG
+ * is enabled.
+ *
+ * The caller writes @buf together with its companion key line via
+ * ksr_tls_keylog_file_write2 so the two cannot be interleaved by another
+ * worker between two separate fopen/fclose cycles.
  */
-static void ksr_tls_keylog_emit_tuple(const SSL *ssl)
+static int ksr_tls_keylog_emit_tuple(const SSL *ssl, char *buf, size_t buflen)
 {
 	struct tls_extra_data *data;
 	struct tcp_connection *c;
@@ -1186,7 +1195,6 @@ static void ksr_tls_keylog_emit_tuple(const SSL *ssl)
 	char src_ip[IP_ADDR_MAX_STR_SIZE];
 	char dst_ip[IP_ADDR_MAX_STR_SIZE];
 	char srv_random_hex[SSL3_RANDOM_SIZE * 2 + 1];
-	char buf[512];
 	unsigned char srv_random[SSL3_RANDOM_SIZE];
 	unsigned int dst_port;
 	unsigned int cipher_id;
@@ -1197,11 +1205,11 @@ static void ksr_tls_keylog_emit_tuple(const SSL *ssl)
 
 	data = (struct tls_extra_data *)SSL_get_app_data(ssl);
 	if(data == NULL) {
-		return;
+		return 0;
 	}
 	c = data->tcp_conn;
 	if(c == NULL) {
-		return;
+		return 0;
 	}
 	/* ip_addr2a() returns a pointer into a single static buffer, so calling
 	 * it twice in one snprintf gives the same string for both operands.
@@ -1274,24 +1282,26 @@ static void ksr_tls_keylog_emit_tuple(const SSL *ssl)
 			: 0;
 	version = SSL_version(ssl);
 
-	n = snprintf(buf, sizeof(buf),
-			"# TUPLE src=%s:%u dst=%s:%u sr=%s cs=%u v=%d\n",
+	n = snprintf(buf, buflen,
+			"# TUPLE src=%s:%u dst=%s:%u sr=%s cs=%u v=%d",
 			src_ip, (unsigned)c->rcv.src_port, dst_ip, dst_port,
 			srv_random_hex, cipher_id, version);
-	if(n <= 0 || (size_t)n >= sizeof(buf)) {
-		return;
+	if(n <= 0 || (size_t)n >= buflen) {
+		return 0;
 	}
 
 	if(ksr_tls_keylog_mode != NULL
 			&& (*ksr_tls_keylog_mode & KSR_TLS_KEYLOG_MODE_MLOG)) {
-		LM_NOTICE("tlskeylog: %s", buf);
+		LM_NOTICE("tlskeylog: %s\n", buf);
 	}
-	ksr_tls_keylog_file_write(ssl, buf);
-	ksr_tls_keylog_peer_send(ssl, buf);
+	return n;
 }
 
 static void ksr_tls_keylog_callback(const SSL *ssl, const char *line)
 {
+	char tuple_buf[512];
+	int tuple_len;
+
 	if(ksr_tls_keylog_mode == NULL) {
 		return;
 	}
@@ -1303,15 +1313,21 @@ static void ksr_tls_keylog_callback(const SSL *ssl, const char *line)
 			return;
 		}
 	}
-	/* Emit the 5-tuple comment immediately before each key line so a file
-	 * reader can pair them: (# TUPLE ..., <key line>). One comment per key
-	 * line is intentionally simple; consumers that only care about the tuple
-	 * once per session can dedupe by 5-tuple. */
-	ksr_tls_keylog_emit_tuple(ssl);
+	/* Build the 5-tuple comment first, then write TUPLE + key line as a
+	 * single fopen/fprintf/fclose under the file lock. Two separate write
+	 * cycles let another worker slip its own TUPLE+key between them, so a
+	 * file reader that pairs "most recent TUPLE with next key line" would
+	 * attach the wrong 5-tuple. */
+	tuple_len = ksr_tls_keylog_emit_tuple(ssl, tuple_buf, sizeof(tuple_buf));
 	if(*ksr_tls_keylog_mode & KSR_TLS_KEYLOG_MODE_MLOG) {
 		LM_NOTICE("tlskeylog: %s\n", line);
 	}
-	ksr_tls_keylog_file_write(ssl, line);
+	if(tuple_len > 0) {
+		ksr_tls_keylog_file_write2(ssl, tuple_buf, line);
+		ksr_tls_keylog_peer_send(ssl, tuple_buf);
+	} else {
+		ksr_tls_keylog_file_write(ssl, line);
+	}
 	ksr_tls_keylog_peer_send(ssl, line);
 }
 

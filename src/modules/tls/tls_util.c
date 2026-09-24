@@ -210,6 +210,34 @@ int ksr_tls_keylog_file_write(const SSL *ssl, const char *line)
 	return ret;
 }
 
+/**
+ * Append two lines to the keylog file under a single lock+fopen+fclose so a
+ * companion "# TUPLE ..." comment and its NSS key line cannot be interleaved
+ * by another worker's write. Both lines are newline-terminated by fprintf.
+ */
+int ksr_tls_keylog_file_write2(
+		const SSL *ssl, const char *line1, const char *line2)
+{
+	FILE *lf = NULL;
+	int ret = 0;
+
+	if(ksr_tls_keylog_file_lock == NULL) {
+		return 0;
+	}
+
+	lock_get(ksr_tls_keylog_file_lock);
+	lf = fopen(ksr_tls_keylog_file.s, "a");
+	if(lf) {
+		fprintf(lf, "%s\n%s\n", line1, line2);
+		fclose(lf);
+	} else {
+		LM_ERR("failed to open keylog file: %s\n", ksr_tls_keylog_file.s);
+		ret = -1;
+	}
+	lock_release(ksr_tls_keylog_file_lock);
+	return ret;
+}
+
 
 /**
  *

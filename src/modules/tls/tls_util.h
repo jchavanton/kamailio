@@ -93,6 +93,8 @@ void tls_openssl_clear_errors(void);
 
 int ksr_tls_keylog_file_init(void);
 int ksr_tls_keylog_file_write(const SSL *ssl, const char *line);
+int ksr_tls_keylog_file_write2(
+		const SSL *ssl, const char *line1, const char *line2);
 int ksr_tls_keylog_peer_init(void);
 int ksr_tls_keylog_peer_send(const SSL *ssl, const char *line);
 int ksr_tls_keylog_vfilter_match(const char *line);
