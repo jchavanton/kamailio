@@ -212,6 +212,19 @@ static int mod_init(void)
 	if(mt_fetch_rows <= 0)
 		mt_fetch_rows = 1000;
 
+	/* Ensure the prefix character table is initialized before workers fork.
+	 * Without this, an empty route table at startup means mt_add_to_tree is
+	 * never called during mod_init, workers inherit an uninitialized table
+	 * (all zeros, not MT_CHAR_TABLE_NOTSET), and every mt_match() lookup in
+	 * a worker walks the tree with wrong indices — the row appears in
+	 * `mtree.list` but `mt_match` returns "no match". Reload after seeding
+	 * only initializes the CTL process, not the workers. Regression from
+	 * commit 86a7e90ce1 which removed the unconditional init from mod_init. */
+	if(mt_char_table_init(0) < 0) {
+		LM_ERR("failed to init prefix char table\n");
+		return -1;
+	}
+
 	/* binding to database module */
 	if(db_bind_mod(&db_url, &mt_dbf)) {
 		LM_ERR("database module not found\n");
