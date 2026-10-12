@@ -3939,6 +3939,37 @@ int ds_update_latency(int group, str *address, str *iuid, int code)
 			gettimeofday(&now, NULL);
 			latency_ms = (now.tv_sec - latency_stats->start.tv_sec) * 1000
 						 + (now.tv_usec - latency_stats->start.tv_usec) / 1000;
+			/* Diagnostic: on a warm destination, a sample above 100 ms is
+			 * worth splitting. prep_send is time between gettimeofday(start)
+			 * in the slow-timer process and SEND_BUFFER returning; wire_reply
+			 * is from SEND_BUFFER return to this callback firing. Values of
+			 * -1 mean TMCB_REQUEST_SENT was not stamped (should not happen
+			 * for a reply that got here, but be defensive). */
+			if(code != 408 && latency_ms > 100
+					&& latency_stats->count > 100) {
+				int prep_send_ms = -1;
+				int wire_reply_ms = -1;
+				if(latency_stats->sent.tv_sec != 0
+						|| latency_stats->sent.tv_usec != 0) {
+					prep_send_ms = (latency_stats->sent.tv_sec
+										   - latency_stats->start.tv_sec)
+										   * 1000
+								   + (latency_stats->sent.tv_usec
+											 - latency_stats->start.tv_usec)
+											 / 1000;
+					wire_reply_ms = (now.tv_sec - latency_stats->sent.tv_sec)
+											* 1000
+									+ (now.tv_usec - latency_stats->sent.tv_usec)
+											  / 1000;
+				}
+				LM_WARN("dispatcher latency spike: total=%dms "
+						"prep_send=%dms wire_reply=%dms [%.*s] "
+						"state=0x%x code=%d count=%d avg=%.1f stdev=%.1f\n",
+						latency_ms, prep_send_ms, wire_reply_ms,
+						address->len, address->s, state, code,
+						latency_stats->count, latency_stats->average,
+						latency_stats->stdev);
+			}
 			/* Skip first successful latency measurement to avoid inflated values
 			 * when gateway becomes reachable during OPTIONS ping */
 			if(code != 408) {
@@ -5024,6 +5055,40 @@ int ds_extract_fromhdr_iuid(str *from, str *iuid)
 }
 
 /*! \brief
+ * Record the moment an OPTIONS ping was handed to the wire. Called from
+ * ds_options_callback on TMCB_REQUEST_SENT. Walks the destination set and
+ * stamps latency_stats.sent on the row whose suid matches the ping's iuid.
+ */
+static void ds_mark_options_sent(int group, str *iuid)
+{
+	int i = 0;
+	ds_set_t *idx = NULL;
+	ds_list_t *list;
+
+	list = ds_get_list();
+	if(list == NULL || list->nr <= 0) {
+		ds_put_list(list);
+		return;
+	}
+	if(ds_get_index(group, list, &idx) != 0) {
+		ds_put_list(list);
+		return;
+	}
+	lock_get(&idx->lock);
+	while(i < idx->nr) {
+		ds_dest_t *ds_dest = &idx->dlist[i];
+		if(ds_dest->suid.len == iuid->len
+				&& strncasecmp(ds_dest->suid.s, iuid->s, iuid->len) == 0) {
+			gettimeofday(&ds_dest->latency_stats.sent, NULL);
+			break;
+		}
+		i++;
+	}
+	lock_release(&idx->lock);
+	ds_put_list(list);
+}
+
+/*! \brief
  * Callback-Function for the OPTIONS-Request
  * This Function is called, as soon as the Transaction is finished
  * (e. g. a Response came in, the timeout was hit, ...)
@@ -5039,6 +5104,21 @@ static void ds_options_callback(
 	str iuid = STR_NULL;
 	int *ds_rplcodes = NULL;
 	int ds_rplcodes_cnt = 0;
+
+	/* On TMCB_REQUEST_SENT: stamp latency_stats.sent so a later spike in
+	 * ds_update_latency can split pre-send cost from wire+reply cost.
+	 * Skip retransmits so sent reflects the first send, not the retry. */
+	if(type == TMCB_REQUEST_SENT) {
+		if(ps->flags & TMCB_RETR_F)
+			return;
+		if(ps->param == NULL)
+			return;
+		if(ds_extract_fromhdr_iuid(&t->from_hdr, &iuid) != 0)
+			return;
+		group = (int)(long)(*ps->param);
+		ds_mark_options_sent(group, &iuid);
+		return;
+	}
 
 	/* The param contains the group, in which the failed host
 	 * can be found.*/
@@ -5208,7 +5288,8 @@ void ds_ping_set(ds_set_t *node)
 			 * int request(str* m, str* ruri, str* to, str* from, str* h,
 			 *		str* b, str *oburi,
 			 *		transaction_cb cb, void* cbp); */
-			set_uac_req(&uac_r, &ds_ping_method, 0, 0, 0, TMCB_LOCAL_COMPLETED,
+			set_uac_req(&uac_r, &ds_ping_method, 0, 0, 0,
+					TMCB_LOCAL_COMPLETED | TMCB_REQUEST_SENT,
 					ds_options_callback, (void *)(long)node->id);
 			if(node->dlist[j].attrs.ping_socket.s != NULL
 					&& node->dlist[j].attrs.ping_socket.len > 0) {
@@ -5263,6 +5344,8 @@ void ds_ping_set(ds_set_t *node)
 			}
 
 			gettimeofday(&node->dlist[j].latency_stats.start, NULL);
+			node->dlist[j].latency_stats.sent.tv_sec = 0;
+			node->dlist[j].latency_stats.sent.tv_usec = 0;
 
 			if(tmb.t_request(&uac_r, &node->dlist[j].uri, &node->dlist[j].uri,
 					   &ping_from, &obproxy)

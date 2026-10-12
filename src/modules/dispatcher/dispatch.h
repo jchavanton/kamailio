@@ -243,6 +243,9 @@ typedef struct _ds_attrs {
 
 typedef struct _ds_latency_stats {
 	struct timeval start;
+	struct timeval sent; /* set from TMCB_REQUEST_SENT after SEND_BUFFER returns;
+			      * used to split pre-send cost from wire+reply-handling cost
+			      * on spike samples. */
 	int min;
 	int max;
 	float average;  // weighted average, estimate of the last few weeks
