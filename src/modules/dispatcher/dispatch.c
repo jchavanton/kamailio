@@ -3948,7 +3948,8 @@ int ds_update_latency(int group, str *address, str *iuid, int code)
 			if(code != 408 && latency_ms > 100
 					&& latency_stats->count > 10) {
 				int prep_send_ms = -1;
-				int wire_reply_ms = -1;
+				int wire_rcv_ms = -1;
+				int complete_ms = -1;
 				if(latency_stats->sent.tv_sec != 0
 						|| latency_stats->sent.tv_usec != 0) {
 					prep_send_ms = (latency_stats->sent.tv_sec
@@ -3957,15 +3958,26 @@ int ds_update_latency(int group, str *address, str *iuid, int code)
 								   + (latency_stats->sent.tv_usec
 											 - latency_stats->start.tv_usec)
 											 / 1000;
-					wire_reply_ms = (now.tv_sec - latency_stats->sent.tv_sec)
-											* 1000
-									+ (now.tv_usec - latency_stats->sent.tv_usec)
-											  / 1000;
+				}
+				if((latency_stats->sent.tv_sec != 0
+						   || latency_stats->sent.tv_usec != 0)
+						&& (latency_stats->rcv.tv_sec != 0
+								|| latency_stats->rcv.tv_usec != 0)) {
+					wire_rcv_ms = (latency_stats->rcv.tv_sec
+										  - latency_stats->sent.tv_sec)
+										  * 1000
+								  + (latency_stats->rcv.tv_usec
+											- latency_stats->sent.tv_usec)
+											/ 1000;
+					complete_ms = (now.tv_sec - latency_stats->rcv.tv_sec)
+										  * 1000
+								  + (now.tv_usec - latency_stats->rcv.tv_usec)
+											/ 1000;
 				}
 				LM_WARN("dispatcher latency spike: total=%dms "
-						"prep_send=%dms wire_reply=%dms [%.*s] "
+						"prep_send=%dms wire_rcv=%dms complete=%dms [%.*s] "
 						"state=0x%x code=%d count=%d avg=%.1f stdev=%.1f\n",
-						latency_ms, prep_send_ms, wire_reply_ms,
+						latency_ms, prep_send_ms, wire_rcv_ms, complete_ms,
 						address->len, address->s, state, code,
 						latency_stats->count, latency_stats->average,
 						latency_stats->stdev);
@@ -5055,11 +5067,11 @@ int ds_extract_fromhdr_iuid(str *from, str *iuid)
 }
 
 /*! \brief
- * Record the moment an OPTIONS ping was handed to the wire. Called from
- * ds_options_callback on TMCB_REQUEST_SENT. Walks the destination set and
- * stamps latency_stats.sent on the row whose suid matches the ping's iuid.
+ * Record a diagnostic timestamp on the destination row matching iuid.
+ * which=0 -> latency_stats.sent (called from TMCB_REQUEST_SENT)
+ * which=1 -> latency_stats.rcv  (called from TMCB_LOCAL_RESPONSE_IN)
  */
-static void ds_mark_options_sent(int group, str *iuid)
+static void ds_mark_options_ts(int group, str *iuid, int which)
 {
 	int i = 0;
 	ds_set_t *idx = NULL;
@@ -5079,7 +5091,11 @@ static void ds_mark_options_sent(int group, str *iuid)
 		ds_dest_t *ds_dest = &idx->dlist[i];
 		if(ds_dest->suid.len == iuid->len
 				&& strncasecmp(ds_dest->suid.s, iuid->s, iuid->len) == 0) {
-			gettimeofday(&ds_dest->latency_stats.sent, NULL);
+			if(which == 0) {
+				gettimeofday(&ds_dest->latency_stats.sent, NULL);
+			} else {
+				gettimeofday(&ds_dest->latency_stats.rcv, NULL);
+			}
 			break;
 		}
 		i++;
@@ -5105,10 +5121,13 @@ static void ds_options_callback(
 	int *ds_rplcodes = NULL;
 	int ds_rplcodes_cnt = 0;
 
-	/* On TMCB_REQUEST_SENT: stamp latency_stats.sent so a later spike in
-	 * ds_update_latency can split pre-send cost from wire+reply cost.
-	 * Skip retransmits so sent reflects the first send, not the retry. */
-	if(type == TMCB_REQUEST_SENT) {
+	/* Diagnostic timestamps on the destination row.
+	 * TMCB_REQUEST_SENT         -> latency_stats.sent (after SEND_BUFFER)
+	 * TMCB_LOCAL_RESPONSE_IN    -> latency_stats.rcv  (reply parsed+matched)
+	 * ds_update_latency reads both to compute prep_send / wire_rcv / complete
+	 * when a spike is logged. Skip retransmits so sent/rcv reflect the first
+	 * send and first (non-retransmit) reply. */
+	if(type == TMCB_REQUEST_SENT || type == TMCB_LOCAL_RESPONSE_IN) {
 		if(ps->flags & TMCB_RETR_F)
 			return;
 		if(ps->param == NULL)
@@ -5116,7 +5135,8 @@ static void ds_options_callback(
 		if(ds_extract_fromhdr_iuid(&t->from_hdr, &iuid) != 0)
 			return;
 		group = (int)(long)(*ps->param);
-		ds_mark_options_sent(group, &iuid);
+		ds_mark_options_ts(
+				group, &iuid, (type == TMCB_REQUEST_SENT) ? 0 : 1);
 		return;
 	}
 
@@ -5289,7 +5309,8 @@ void ds_ping_set(ds_set_t *node)
 			 *		str* b, str *oburi,
 			 *		transaction_cb cb, void* cbp); */
 			set_uac_req(&uac_r, &ds_ping_method, 0, 0, 0,
-					TMCB_LOCAL_COMPLETED | TMCB_REQUEST_SENT,
+					TMCB_LOCAL_COMPLETED | TMCB_REQUEST_SENT
+							| TMCB_LOCAL_RESPONSE_IN,
 					ds_options_callback, (void *)(long)node->id);
 			if(node->dlist[j].attrs.ping_socket.s != NULL
 					&& node->dlist[j].attrs.ping_socket.len > 0) {
@@ -5346,6 +5367,8 @@ void ds_ping_set(ds_set_t *node)
 			gettimeofday(&node->dlist[j].latency_stats.start, NULL);
 			node->dlist[j].latency_stats.sent.tv_sec = 0;
 			node->dlist[j].latency_stats.sent.tv_usec = 0;
+			node->dlist[j].latency_stats.rcv.tv_sec = 0;
+			node->dlist[j].latency_stats.rcv.tv_usec = 0;
 
 			if(tmb.t_request(&uac_r, &node->dlist[j].uri, &node->dlist[j].uri,
 					   &ping_from, &obproxy)

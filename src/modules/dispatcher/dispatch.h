@@ -246,6 +246,10 @@ typedef struct _ds_latency_stats {
 	struct timeval sent; /* set from TMCB_REQUEST_SENT after SEND_BUFFER returns;
 			      * used to split pre-send cost from wire+reply-handling cost
 			      * on spike samples. */
+	struct timeval rcv;  /* set from TMCB_LOCAL_RESPONSE_IN, the first point
+			      * where kamailio has parsed+matched the reply. Splits
+			      * (wire + kernel-delivery + reader + parse/match) from
+			      * (TM-callback-dispatch to ds_options_callback). */
 	int min;
 	int max;
 	float average;  // weighted average, estimate of the last few weeks
