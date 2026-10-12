@@ -3946,7 +3946,7 @@ int ds_update_latency(int group, str *address, str *iuid, int code)
 			 * -1 mean TMCB_REQUEST_SENT was not stamped (should not happen
 			 * for a reply that got here, but be defensive). */
 			if(code != 408 && latency_ms > 100
-					&& latency_stats->count > 100) {
+					&& latency_stats->count > 10) {
 				int prep_send_ms = -1;
 				int wire_reply_ms = -1;
 				if(latency_stats->sent.tv_sec != 0
